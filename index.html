@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#14231b">
+  <meta name="description" content="ブラウザで遊べる花札こいこい。CPU の強さを選べて、配札の公平性を後から検証できます。">
+  <title>花札 こいこい</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='14' y='4' width='36' height='56' rx='5' fill='%23f4ecd8' stroke='%231d1a17' stroke-width='3'/%3E%3Ccircle cx='32' cy='24' r='10' fill='%23c8242c'/%3E%3Crect x='14' y='40' width='36' height='20' fill='%231d1a17'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho+B1:wght@600;800&family=Zen+Kaku+Gothic+New:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="sprite"></div>
+
+  <div id="app">
+    <header id="topbar">
+      <div class="brand"><span class="mark">花</span><span class="name">こいこい</span></div>
+      <button class="round-pill" id="roundLabel" title="公平性の情報">第1局</button>
+      <div class="scores">
+        <div class="score you"><span>あなた</span><b id="scoreP">0</b></div>
+        <div class="score cpu"><span>CPU</span><b id="scoreC">0</b></div>
+      </div>
+      <nav class="tools">
+        <button class="icon-btn" id="btnRules" aria-label="ルールと役">
+          <svg viewBox="0 0 24 24"><path d="M4 4h7a3 3 0 0 1 3 3v13a2 2 0 0 0-2-2H4zM20 4h-5a3 3 0 0 0-3 3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M20 4v14h-6" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
+        </button>
+        <button class="icon-btn" id="btnFair" aria-label="公平性と検証">
+          <svg viewBox="0 0 24 24"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M8.5 12l2.5 2.5 4.5-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        </button>
+        <button class="icon-btn" id="btnMenu" aria-label="メニュー">
+          <svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        </button>
+      </nav>
+    </header>
+
+    <main id="table">
+      <section class="zone" id="zCpuHand"><div class="seat"><span class="avatar">CPU</span><span id="cpuLevelLabel"></span><span class="thinking" id="thinking"><i></i><i></i><i></i></span></div></section>
+      <section class="zone cap" id="zCpuCap"><span class="cap-title">CPU の取り札</span><div class="chips" id="cpuYaku"></div></section>
+      <section class="zone" id="zField"><div id="koikoiBadges"></div></section>
+      <section class="zone cap" id="zMyCap"><span class="cap-title">あなたの取り札</span><div class="chips" id="myYaku"></div></section>
+      <section class="zone" id="zHand"></section>
+      <div id="hint" aria-live="polite"></div>
+      <div id="layer"></div>
+      <div id="banner" aria-live="assertive"></div>
+    </main>
+  </div>
+
+  <!-- タイトル -->
+  <div class="overlay show" id="ovTitle">
+    <div class="sheet title-sheet">
+      <div class="title-cards" id="titleCards"></div>
+      <h1><span>花札</span><small>こいこい</small></h1>
+      <p class="lead">ひとりでじっくり、CPU と一年勝負。</p>
+
+      <div class="field-group">
+        <div class="label">CPU の強さ</div>
+        <div class="seg levels" id="levelSeg"></div>
+      </div>
+      <div class="field-group">
+        <div class="label">対局の長さ</div>
+        <div class="seg" id="roundSeg">
+          <button data-v="3">3局</button><button data-v="6">6局</button><button data-v="12">12局（一年）</button>
+        </div>
+      </div>
+
+      <details class="more">
+        <summary>ルール設定</summary>
+        <div class="toggles" id="ruleToggles"></div>
+      </details>
+
+      <details class="more fair">
+        <summary>公平性（コミットメント）</summary>
+        <p class="small">山札は対局前に決まり、そのハッシュ（コミットメント）を先に公開します。あなたの種も混ぜるので、アプリ側が都合のいい山札を選ぶことはできません。終局後に元の種を公開し、誰でも再計算できます。</p>
+        <div class="kv"><span>コミットメント</span><code id="commitPreview"></code></div>
+        <label class="kv"><span>あなたの種</span>
+          <span class="seed-row"><input id="playerSeed" spellcheck="false" autocomplete="off"><button class="mini" id="reseed" title="作り直す">↻</button></span>
+        </label>
+      </details>
+
+      <button class="primary big" id="btnStart">対局をはじめる</button>
+      <div class="title-links">
+        <button class="link" id="btnTitleRules">遊び方と役</button>
+        <button class="link" id="btnTitleVerify">記録を検証</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- こいこい判断 -->
+  <div class="overlay" id="ovDecide">
+    <div class="sheet decide-sheet">
+      <div class="decide-head">役ができました</div>
+      <div class="yaku-list" id="decideYaku"></div>
+      <div class="decide-score" id="decideScore"></div>
+      <div class="decide-note" id="decideNote"></div>
+      <div class="decide-btns">
+        <button class="choice koikoi" id="btnKoikoi"><b>こいこい</b><span>続けてもっと狙う</span></button>
+        <button class="choice stop" id="btnStop"><b>あがり</b><span>ここで勝負</span></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 局の結果 -->
+  <div class="overlay" id="ovRound">
+    <div class="sheet result-sheet">
+      <div class="result-head" id="roundHead"></div>
+      <div class="result-cards" id="roundCards"></div>
+      <div class="yaku-list" id="roundYaku"></div>
+      <div class="result-total" id="roundTotal"></div>
+      <div class="result-board" id="roundBoard"></div>
+      <button class="primary" id="btnNext">次の局へ</button>
+    </div>
+  </div>
+
+  <!-- 試合結果 -->
+  <div class="overlay" id="ovMatch">
+    <div class="sheet result-sheet">
+      <div class="match-head" id="matchHead"></div>
+      <div class="match-score" id="matchScore"></div>
+      <div class="result-board" id="matchBoard"></div>
+      <div class="verify-inline" id="matchVerify"></div>
+      <div class="btn-row">
+        <button class="secondary" id="btnMatchVerify">検証の詳細</button>
+        <button class="primary" id="btnAgain">もう一度</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ルール -->
+  <div class="overlay" id="ovRules">
+    <div class="sheet wide">
+      <button class="close" data-close>×</button>
+      <h2>遊び方と役</h2>
+      <div class="tabs" id="ruleTabs">
+        <button data-tab="how" class="on">遊び方</button>
+        <button data-tab="yaku">役と点数</button>
+        <button data-tab="cards">札一覧</button>
+        <button data-tab="fair">公平性</button>
+      </div>
+      <div class="tab-body" id="ruleBody"></div>
+    </div>
+  </div>
+
+  <!-- 検証 -->
+  <div class="overlay" id="ovVerify">
+    <div class="sheet wide">
+      <button class="close" data-close>×</button>
+      <h2>公平性と検証</h2>
+      <div id="verifyBody"></div>
+    </div>
+  </div>
+
+  <!-- メニュー -->
+  <div class="overlay" id="ovMenu">
+    <div class="sheet">
+      <button class="close" data-close>×</button>
+      <h2>設定</h2>
+      <div class="toggles">
+        <label class="toggle"><input type="checkbox" id="optSound"><span>効果音</span></label>
+        <label class="range"><span>音量</span><input type="range" id="optVolume" min="0" max="1" step="0.05"></label>
+        <label class="toggle"><input type="checkbox" id="optTags"><span>札に月と種類を表示</span></label>
+        <label class="toggle"><input type="checkbox" id="optHints"><span>役のあと何枚かを表示</span></label>
+      </div>
+      <div class="field-group">
+        <div class="label">アニメーション速度</div>
+        <div class="seg" id="speedSeg"><button data-v="1.5">ゆっくり</button><button data-v="1">ふつう</button><button data-v="0.55">はやい</button></div>
+      </div>
+      <button class="danger" id="btnQuit">対局をやめてタイトルへ</button>
+    </div>
+  </div>
+
+  <div id="toast"></div>
+  <script type="module" src="js/ui.js"></script>
+</body>
+</html>

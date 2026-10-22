@@ -1,0 +1,9 @@
+{
+  "name": "hanafuda",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "verify": "node tools/verify.mjs"
+  }
+}
