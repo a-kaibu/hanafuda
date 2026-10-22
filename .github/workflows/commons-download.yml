@@ -1,0 +1,20 @@
+name: Commons card art download
+on:
+  push:
+    branches: [main]
+    paths: [tools/commons_download.py, .github/workflows/commons-download.yml]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tools/commons_download.py
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add assets/cards
+          git commit -m "Wikimedia Commons から札画像（CC BY-SA 4.0）と出典一覧を取得" || exit 0
+          git push
