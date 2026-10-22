@@ -1,5 +1,5 @@
 # Wikimedia Commons の花札 SVG（Louie Mantia ほか, CC BY-SA 4.0）を取得し、出典一覧を作る（GitHub Actions 上で実行）
-import json, os, re, urllib.parse, urllib.request
+import json, os, re, time, traceback, urllib.parse, urllib.request
 
 API = "https://commons.wikimedia.org/w/api.php"
 UA = {"User-Agent": "a-kaibu-hanafuda/1.0 (https://github.com/a-kaibu/hanafuda)"}
@@ -23,8 +23,14 @@ TYPES = [
 VARIANTS = {"std": "", "alt": " Alt", "alt2": " Alt2"}
 
 def get(url):
-    with urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=60) as r:
-        return r.read()
+    for attempt in range(6):
+        try:
+            with urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=60) as r:
+                return r.read()
+        except Exception:
+            if attempt == 5:
+                raise
+            time.sleep(5 * (attempt + 1))
 
 def strip(html):
     return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", html or "")).strip()
@@ -37,6 +43,7 @@ for var, suffix in VARIANTS.items():
     jobs.append((var, "back", "File:Hanafuda card back.svg"))
 
 credits = []
+errors = []
 for i in range(0, len(jobs), 40):
     chunk = jobs[i:i + 40]
     d = json.loads(get(API + "?" + urllib.parse.urlencode({
@@ -45,6 +52,7 @@ for i in range(0, len(jobs), 40):
     pages = {p["title"]: p for p in d["query"]["pages"].values()}
     norm = {n["from"]: n["to"] for n in d["query"].get("normalized", [])}
     for var, cid, title in chunk:
+      try:
         p = pages[norm.get(title, title)]
         ii = p["imageinfo"][0]
         md = {k: v.get("value") for k, v in ii.get("extmetadata", {}).items()}
@@ -54,5 +62,9 @@ for i in range(0, len(jobs), 40):
                         "page": "https://commons.wikimedia.org/wiki/" + urllib.parse.quote(p["title"].replace(" ", "_")),
                         "artist": strip(md.get("Artist")), "license": md.get("LicenseShortName"),
                         "licenseUrl": md.get("LicenseUrl")})
+        time.sleep(0.5)
+      except Exception:
+        errors.append(title + "\n" + traceback.format_exc())
 json.dump(credits, open("assets/cards/credits.json", "w"), ensure_ascii=False, indent=1)
-print(len(credits))
+json.dump(errors, open("assets/cards/_errors.json", "w"), ensure_ascii=False, indent=1)
+print(len(credits), len(errors))
