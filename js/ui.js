@@ -3,13 +3,16 @@ import { DEFAULT_RULES, YAKU_INFO, TEYAKU_INFO, evaluate, finalScore } from './y
 import { randomHex, commitmentOf } from './rng.js';
 import { isDecision } from './engine.js';
 import { LEVELS, decide } from './cpu.js';
-import { spriteSVG } from './art.js';
 import * as sfx from './audio.js';
 import {
   HUMAN, CPU, createMatch, startRound, act, step, cpuView, isMatchOver, reveal, verifyLog,
 } from './match.js';
 
 const $ = (s) => document.querySelector(s);
+// 札の絵: Wikimedia Commons の Louie Mantia ほか作（CC BY-SA 4.0）。出典は assets/cards/CREDITS.md
+const ART = 'assets/cards/alt';
+const cardImg = (c) => `<img src="${ART}/${c}.svg" alt="${CARDS[c].name}" draggable="false" decoding="async">`;
+const backImg = () => `<img src="${ART}/back.svg" alt="" draggable="false" decoding="async">`;
 const $$ = (s) => [...document.querySelectorAll(s)];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms * speed()));
 const table = $('#table');
@@ -95,7 +98,7 @@ function makeCards() {
     const el = document.createElement('div');
     el.className = 'card down instant';
     el.dataset.id = card.id;
-    el.innerHTML = `<div class="inner"><div class="face"><svg viewBox="0 0 100 160"><use href="#card-${card.id}"/></svg><span class="tag ${card.kind}">${tagText(card.id)}</span></div><div class="back"><svg viewBox="0 0 100 160"><use href="#card-back"/></svg></div></div>`;
+    el.innerHTML = `<div class="inner"><div class="face">${cardImg(card.id)}<span class="tag ${card.kind}">${tagText(card.id)}</span></div><div class="back">${backImg()}</div></div>`;
     el.setAttribute('aria-label', card.name);
     el.addEventListener('click', (e) => { e.stopPropagation(); onCardClick(card.id); });
     el.addEventListener('mouseenter', () => onCardHover(card.id, true));
@@ -109,7 +112,7 @@ function makeCards() {
   groupLabels = {};
 }
 
-const miniCard = (c) => `<span class="mc" title="${CARDS[c].name}"><svg viewBox="0 0 100 160"><use href="#card-${c}"/></svg></span>`;
+const miniCard = (c) => `<span class="mc" title="${CARDS[c].name}">${cardImg(c)}</span>`;
 
 // ---------------- レイアウト ----------------
 function rectOf(el) {
@@ -771,7 +774,7 @@ $$('.overlay').forEach((o) =>
 function buildTitle() {
   const fan = [0, 8, 28, 40, 44];
   $('#titleCards').innerHTML = fan
-    .map((c, i) => `<div class="tc" style="transform: translateX(-50%) rotate(${(i - 2) * 11}deg); animation-delay:${i * 0.07}s"><svg viewBox="0 0 100 160"><use href="#card-${c}"/></svg></div>`)
+    .map((c, i) => `<div class="tc" style="transform: translateX(-50%) rotate(${(i - 2) * 11}deg); animation-delay:${i * 0.07}s">${cardImg(c)}</div>`)
     .join('');
   $('#levelSeg').innerHTML = LEVELS.map(
     (l) => `<button data-v="${l.id}"><span class="stars">${'●'.repeat(l.id)}${'○'.repeat(4 - l.id)}</span><b>${l.name}</b><small>${l.desc}</small></button>`,
@@ -806,6 +809,7 @@ const EXAMPLES = {
   teshi: [0, 1, 2, 3], kuttsuki: [0, 1, 4, 5, 8, 9, 12, 13],
 };
 const exampleCards = (k) => EXAMPLES[k] || [];
+const CREDIT_HTML = `<p class="note">札の絵：<a href="https://commons.wikimedia.org/wiki/Category:SVG_Hanafuda_with_traditional_colors_(black_border)" target="_blank" rel="noopener">Wikimedia Commons</a> の Louie Mantia、すけじょ、Spenĉjo 作の花札 SVG（<a href="https://creativecommons.org/licenses/by-sa/4.0/deed.ja" target="_blank" rel="noopener">CC BY-SA 4.0</a>）。詳細は <a href="https://github.com/a-kaibu/hanafuda/blob/main/assets/cards/CREDITS.md" target="_blank" rel="noopener">CREDITS.md</a>。</p>`;
 
 function ruleTab(tab) {
   $$('#ruleTabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
@@ -856,7 +860,7 @@ function ruleTab(tab) {
       }
       h += '</div></div>';
     }
-    body.innerHTML = h + '</div>';
+    body.innerHTML = h + `</div>${CREDIT_HTML}`;
   } else if (tab === 'fair') {
     body.innerHTML = fairnessExplainer();
   }
@@ -959,7 +963,11 @@ const escapeHTML = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', 
 
 // ---------------- 起動 ----------------
 function init() {
-  $('#sprite').innerHTML = spriteSVG();
+  // 札画像を先読みしておく（初回の配札で絵が遅れて出ないように）
+  for (const c of [...CARDS.map((x) => x.id), 'back']) {
+    const im = new Image();
+    im.src = `${ART}/${c}.svg`;
+  }
   applySettings();
   buildTitle();
   prepareSeeds();

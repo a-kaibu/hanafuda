@@ -154,9 +154,9 @@ button { font: inherit; color: inherit; cursor: pointer; border: 0; background: 
   overflow: hidden;
   box-shadow: 0 1px 0 #0005, 0 3px 6px #0006;
 }
-.card .face { background: var(--paper); border: 1.5px solid #2a1a12; }
+.card .face { background: #111; }
 .card .back { transform: rotateY(180deg); }
-.card svg { display: block; width: 100%; height: 100%; }
+.card img { display: block; width: 100%; height: 100%; object-fit: fill; pointer-events: none; -webkit-user-drag: none; }
 .card .tag {
   position: absolute; left: 0; right: 0; bottom: 0; padding: 1px 0 2px 3px;
   font-size: max(8px, calc(var(--cw) * .17)); line-height: 1.1; text-align: left; white-space: nowrap;
@@ -229,8 +229,8 @@ body.tags .card .tag { display: block; }
 .title-sheet h1 small { display: block; font-size: 16px; letter-spacing: .5em; margin-top: 8px; color: var(--red); }
 .lead { margin: 6px 0 14px; color: #6b5a44; font-size: 13px; }
 .title-cards { position: relative; height: 92px; }
-.title-cards .tc { position: absolute; left: 50%; top: 4px; width: 52px; height: 83px; border-radius: 5px; overflow: hidden; box-shadow: 0 4px 10px #0005; border: 1.5px solid #2a1a12; transform-origin: 50% 140%; animation: fanIn .9s cubic-bezier(.2, 1.2, .3, 1) backwards; }
-.title-cards .tc svg { width: 100%; height: 100%; display: block; }
+.title-cards .tc { position: absolute; left: 50%; top: 4px; width: 52px; height: 83px; border-radius: 5px; overflow: hidden; box-shadow: 0 4px 10px #0005; transform-origin: 50% 140%; animation: fanIn .9s cubic-bezier(.2, 1.2, .3, 1) backwards; }
+.title-cards .tc img { width: 100%; height: 100%; display: block; }
 @keyframes fanIn { from { transform: translateX(-50%) rotate(0deg) translateY(30px); opacity: 0; } }
 
 .field-group { margin: 12px 0; text-align: left; }
@@ -278,6 +278,8 @@ details.more summary { cursor: pointer; font-size: 13px; font-weight: 700; color
 .btn-row { display: flex; gap: 10px; }
 .btn-row > * { flex: 1; }
 .title-links { display: flex; justify-content: center; gap: 18px; margin-top: 12px; }
+.credit { margin: 12px 0 0; font-size: 10.5px; color: #8a7a62; }
+.credit a, .note a { color: inherit; }
 .link { color: #6b4a2a; font-size: 13px; text-decoration: underline; text-underline-offset: 3px; }
 
 /* こいこい判断 */
@@ -293,8 +295,8 @@ details.more summary { cursor: pointer; font-size: 13px; font-weight: 700; color
 .yaku-row .pt { margin-left: auto; font-weight: 700; color: var(--red); white-space: nowrap; }
 .yaku-row .mini-cards { display: flex; gap: 2px; flex-wrap: wrap; }
 .yaku-row.new { border-color: var(--gold); background: #fff4d2; }
-.mc { width: 18px; height: 29px; border-radius: 2px; overflow: hidden; border: 1px solid #2a1a12; flex: none; }
-.mc svg { width: 100%; height: 100%; display: block; }
+.mc { width: 18px; height: 29px; border-radius: 2px; overflow: hidden; flex: none; }
+.mc img { width: 100%; height: 100%; display: block; }
 .decide-score { font-size: 14px; color: #5a4a36; }
 .decide-score b { font-family: var(--mincho); font-size: 30px; color: var(--ink); }
 .decide-note { font-size: 11.5px; color: #7a6a52; margin: 4px 0 10px; line-height: 1.5; }
@@ -412,3 +414,4 @@ textarea.logbox { width: 100%; min-height: 90px; font-family: ui-monospace, Menl
   .card, .card .inner { transition-duration: .01s !important; }
   .banner { animation-duration: 1.2s; }
 }
+.card .back::after { content: ''; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 0 0 1px #00000055, inset 0 0 0 3px #ffffff14; }

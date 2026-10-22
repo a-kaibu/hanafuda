@@ -1,8 +1,6 @@
 name: Commons card art download
+# 札画像を Commons から取り直したいときに手動で実行する
 on:
-  push:
-    branches: [main]
-    paths: [tools/commons_download.py, .github/workflows/commons-download.yml]
   workflow_dispatch:
 permissions:
   contents: write

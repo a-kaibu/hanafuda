@@ -20,7 +20,7 @@ TYPES = [
     ["Hikari", "Tane", "Tanzaku", "Kasu"],
     ["Hikari", "Kasu 1", "Kasu 2", "Kasu 3"],
 ]
-VARIANTS = {"std": "", "alt": " Alt", "alt2": " Alt2"}
+VARIANTS = {"alt": " Alt"}  # 伝統的な配色・黒枠版
 
 def get(url):
     for attempt in range(6):
@@ -58,7 +58,7 @@ for i in range(0, len(jobs), 40):
         md = {k: v.get("value") for k, v in ii.get("extmetadata", {}).items()}
         os.makedirs(f"assets/cards/{var}", exist_ok=True)
         open(f"assets/cards/{var}/{cid}.svg", "wb").write(get(ii["url"].split("?")[0]))
-        credits.append({"variant": var, "card": cid, "title": p["title"],
+        credits.append({"card": cid, "title": p["title"],
                         "page": "https://commons.wikimedia.org/wiki/" + urllib.parse.quote(p["title"].replace(" ", "_")),
                         "artist": strip(md.get("Artist")), "license": md.get("LicenseShortName"),
                         "licenseUrl": md.get("LicenseUrl")})
@@ -66,5 +66,6 @@ for i in range(0, len(jobs), 40):
       except Exception:
         errors.append(title + "\n" + traceback.format_exc())
 json.dump(credits, open("assets/cards/credits.json", "w"), ensure_ascii=False, indent=1)
-json.dump(errors, open("assets/cards/_errors.json", "w"), ensure_ascii=False, indent=1)
+if errors:
+    raise SystemExit("\n".join(errors))
 print(len(credits), len(errors))
