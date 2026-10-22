@@ -423,3 +423,14 @@ textarea.logbox { width: 100%; min-height: 90px; font-family: ui-monospace, Menl
 .primary.resume { background: linear-gradient(#2c2a27, #111); color: var(--gold-2); box-shadow: 0 4px 0 #000; display: flex; flex-direction: column; align-items: center; gap: 2px; }
 .primary.resume small { font-family: var(--gothic); font-size: 11px; letter-spacing: 0; color: #e9dcbf; font-weight: 400; }
 .primary[hidden] { display: none; }
+
+.chip.pts { background: #000c; color: var(--paper); border-color: #ffffff44; font-weight: 700; }
+.hana-side { text-align: left; background: #fffaf0; border: 1px solid #e3d5b6; border-radius: 10px; padding: 6px 8px; display: flex; flex-direction: column; gap: 4px; }
+.hana-side .hs-head { font-family: var(--mincho); font-weight: 800; }
+.hana-side .hs-row { display: flex; justify-content: space-between; font-size: 13px; }
+.hana-side .yaku-row { padding: 4px 6px; }
+
+.game-desc { font-size: 12px; color: #5a4a36; margin-top: 6px; line-height: 1.5; }
+.game-desc .link { font-size: 12px; }
+.seg.rule-games { margin-bottom: 8px; }
+details.more[hidden] { display: none; }

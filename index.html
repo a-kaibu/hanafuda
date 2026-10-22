@@ -54,6 +54,11 @@
       <p class="lead">ひとりでじっくり、CPU と一年勝負。</p>
 
       <div class="field-group">
+        <div class="label">遊び方</div>
+        <div class="seg games" id="gameSeg"></div>
+        <div class="game-desc"><span id="gameDesc"></span> <button class="link" id="btnGameRules">ルールを詳しく</button></div>
+      </div>
+      <div class="field-group">
         <div class="label">CPU の強さ</div>
         <div class="seg levels" id="levelSeg"></div>
       </div>
@@ -64,8 +69,8 @@
         </div>
       </div>
 
-      <details class="more">
-        <summary>ルール設定</summary>
+      <details class="more" id="ruleSettings">
+        <summary>ルール設定（こいこい）</summary>
         <div class="toggles" id="ruleToggles"></div>
       </details>
 
@@ -133,6 +138,7 @@
     <div class="sheet wide">
       <button class="close" data-close>×</button>
       <h2>遊び方と役</h2>
+      <div class="seg rule-games" id="ruleGameSeg"></div>
       <div class="tabs" id="ruleTabs">
         <button data-tab="how" class="on">遊び方</button>
         <button data-tab="yaku">役と点数</button>

@@ -1,5 +1,5 @@
 import { CARDS, KIND_LABEL, MONTHS, ID, monthOf } from './cards.js';
-import { DEFAULT_RULES, YAKU_INFO, TEYAKU_INFO, evaluate, finalScore } from './yaku.js';
+import { DEFAULT_RULES, YAKU_INFO, TEYAKU_INFO, HANA_YAKU_INFO, HANA_BASE, evaluate, evaluateHana, cardPoints, finalScore } from './yaku.js';
 import { randomHex, commitmentOf } from './rng.js';
 import { isDecision } from './engine.js';
 import { LEVELS, decide } from './cpu.js';
@@ -24,7 +24,7 @@ const SETTINGS_KEY = 'hanafuda.settings.v1';
 const HISTORY_KEY = 'hanafuda.history.v1';
 const CURRENT_KEY = 'hanafuda.current.v1'; // 対局中の種と行動（リロード後の再開用）
 const settings = Object.assign(
-  { sound: true, volume: 0.7, tags: true, hints: true, speed: 1, level: 2, rounds: 12, rules: { ...DEFAULT_RULES } },
+  { sound: true, volume: 0.7, tags: true, hints: true, speed: 1, level: 2, rounds: 12, game: 'koikoi', rules: { ...DEFAULT_RULES } },
   safeJSON(localStorage.getItem(SETTINGS_KEY)),
 );
 settings.rules = { ...DEFAULT_RULES, ...settings.rules };
@@ -365,6 +365,13 @@ const PROGRESS = [
   { name: '月見', cards: [ID.MOON, ID.SAKE], need: 2 },
 ];
 function renderChips(sel, mine, opp, rules) {
+  if (rules.mode === 'hanaawase') {
+    const ev = evaluateHana(mine);
+    const chips = [{ k: `pt-${cardPoints(mine)}`, cls: 'pts', t: `札 ${cardPoints(mine)}点` }];
+    for (const y of ev.yaku) chips.push({ k: `d-${y.key}`, cls: 'done', t: `${y.name} ${y.points}` });
+    reconcile($(sel), chips.map((c) => ({ ...c, cls: `chip ${c.cls}` })));
+    return;
+  }
   const ev = evaluate(mine, rules);
   const chips = ev.yaku.map((y) => ({ k: `d-${y.key}-${y.points}`, cls: 'done', t: `${y.name} ${y.points}` }));
   if (settings.hints) {
@@ -481,7 +488,7 @@ document.addEventListener('keydown', (e) => {
   const s = match.state;
   if (s.phase === 'play' && s.turn === HUMAN) {
     const hand = [...s.hands[HUMAN]].sort((a, b) => a - b);
-    const n = Number(e.key);
+    const n = e.key === '0' ? 10 : Number(e.key);
     if (n >= 1 && n <= hand.length) onCardClick(hand[n - 1]);
     else if (e.key === 'Enter' && selected != null) onCardClick(selected);
     else if (e.key === 'Escape') { selected = null; render(); }
@@ -664,7 +671,7 @@ async function afterStep(before, s) {
       break;
     case 'check':
       render();
-      if (s.newYaku && s.newYaku.length && (s.phase === 'decide' || s.phase === 'end')) {
+      if (s.newYaku && s.newYaku.length && (s.phase === 'decide' || s.phase === 'end' || s.rules.mode === 'hanaawase')) {
         flashCards(s.newYaku.flatMap((y) => y.cards));
         sfx.play('yaku');
         await banner(s.newYaku.map((y) => y.name).join('・'), before.turn === HUMAN ? 'あなたの役' : 'CPU の役', 'yaku');
@@ -710,7 +717,9 @@ function boardHTML(log, current) {
   return log.rounds
     .map((r) => {
       const w = r.result?.winner;
-      const t = w == null ? (r.result ? '流れ' : '…') : `${w === HUMAN ? '+' : '−'}${r.result.score}`;
+      const pts = r.result?.points?.[HUMAN];
+      const t = !r.result ? '…' : log.rules.mode === 'hanaawase' ? `${pts > 0 ? '+' : pts < 0 ? '−' : '±'}${Math.abs(pts)}`
+        : w == null ? '流れ' : `${w === HUMAN ? '+' : '−'}${r.result.score}`;
       return `<div class="rb ${w === HUMAN ? 'you' : ''} ${r.round === current ? 'now' : ''}">${MONTHS[((r.round - 1) % 12) + 1].name}<b>${t}</b></div>`;
     })
     .join('');
@@ -720,7 +729,19 @@ function roundEnd() {
   const s = match.state;
   const r = s.result;
   const head = $('#roundHead');
-  if (r.winner == null) {
+  if (s.rules.mode === 'hanaawase') {
+    const h = r.hana;
+    const me = h.points[HUMAN];
+    head.textContent = me > 0 ? 'あなたの勝ち' : me < 0 ? 'CPU の勝ち' : '引き分け';
+    head.className = `result-head ${me > 0 ? 'win' : me < 0 ? 'lose' : ''}`;
+    const side = (p, name) => `<div class="hana-side"><div class="hs-head">${name}</div>
+      <div class="hs-row"><span>札の点</span><b>${h.cardPoints[p]}点</b></div>
+      ${h.yaku[p].map((y) => yakuRow(y)).join('') || '<div class="small">出来役なし</div>'}</div>`;
+    $('#roundYaku').innerHTML = side(HUMAN, 'あなた') + side(CPU, 'CPU');
+    $('#roundCards').innerHTML = '';
+    $('#roundTotal').innerHTML = `<b>${me > 0 ? '+' : ''}${me}</b> 点<span class="mult">（札の点 ${h.cardPoints[HUMAN]} − ${HANA_BASE}）＋ 自分の出来役 ${h.yakuTotal[HUMAN]} − 相手の出来役 ${h.yakuTotal[CPU]}</span>`;
+    sfx.play(me >= 0 ? 'win' : 'lose');
+  } else if (r.winner == null) {
     head.textContent = '流れ（引き分け）';
     head.className = 'result-head';
     $('#roundYaku').innerHTML = '<div class="small">どちらも役ができませんでした。親はそのままです。</div>';
@@ -853,7 +874,7 @@ function startMatch() {
     dealerSeed: prepared.dealerSeed,
     cpuSeed: prepared.cpuSeed,
     playerSeed,
-    rules: { ...settings.rules, rounds: settings.rounds },
+    rules: { ...settings.rules, rounds: settings.rounds, mode: settings.game },
     cpuLevel: settings.level,
   });
   $('#cpuLevelLabel').textContent = LEVELS.find((l) => l.id === settings.level).name;
@@ -906,6 +927,15 @@ function buildTitle() {
   $('#levelSeg').innerHTML = LEVELS.map(
     (l) => `<button data-v="${l.id}"><span class="stars">${'●'.repeat(l.id)}${'○'.repeat(4 - l.id)}</span><b>${l.name}</b><small>${l.desc}</small></button>`,
   ).join('');
+  $('#gameSeg').innerHTML = GAMES.map((g) => `<button data-v="${g.id}">${g.name}</button>`).join('');
+  $('#ruleGameSeg').innerHTML = $('#gameSeg').innerHTML;
+  const onGame = () => {
+    $('#gameDesc').textContent = GAMES.find((g) => g.id === settings.game).desc;
+    $('#ruleSettings').hidden = settings.game !== 'koikoi';
+  };
+  if (!GAMES.some((g) => g.id === settings.game)) settings.game = 'koikoi';
+  segment('#gameSeg', settings.game, (v) => { settings.game = v; saveSettings(); onGame(); });
+  onGame();
   segment('#levelSeg', settings.level, (v) => { settings.level = Number(v); saveSettings(); });
   segment('#roundSeg', settings.rounds, (v) => { settings.rounds = Number(v); saveSettings(); });
   const T = [
@@ -938,10 +968,73 @@ const EXAMPLES = {
 const exampleCards = (k) => EXAMPLES[k] || [];
 const CREDIT_HTML = `<p class="note">札の絵：<a href="https://commons.wikimedia.org/wiki/Category:SVG_Hanafuda_with_traditional_colors_(black_border)" target="_blank" rel="noopener">Wikimedia Commons</a> の Louie Mantia、すけじょ、Spenĉjo 作の花札 SVG（<a href="https://creativecommons.org/licenses/by-sa/4.0/deed.ja" target="_blank" rel="noopener">CC BY-SA 4.0</a>）。詳細は <a href="https://github.com/a-kaibu/hanafuda/blob/main/assets/cards/CREDITS.md" target="_blank" rel="noopener">CREDITS.md</a>。</p>`;
 
-function ruleTab(tab) {
+const GAMES = [
+  { id: 'koikoi', name: 'こいこい', desc: '役を作って「あがる」か「こいこい」で続けるかを選ぶ、いちばん有名な遊び方。' },
+  { id: 'hanaawase', name: '花合わせ', desc: 'こいこいせずに手札を出し切り、取った札の点数と出来役で勝負する昔ながらの遊び方。' },
+];
+let ruleGame = 'koikoi';
+let ruleTabNow = 'how';
+
+function ruleTab(tab = ruleTabNow) {
+  ruleTabNow = tab;
   $$('#ruleTabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
+  $$('#ruleGameSeg button').forEach((b) => b.classList.toggle('on', b.dataset.v === ruleGame));
   const body = $('#ruleBody');
-  const R = match ? match.log.rules : settings.rules;
+  const R = match && match.log.rules.mode === ruleGame ? match.log.rules : { ...settings.rules, mode: ruleGame };
+  if (ruleGame === 'hanaawase' && (tab === 'how' || tab === 'yaku')) return hanaRules(tab, body);
+  if (ruleGame === 'oicho' && (tab === 'how' || tab === 'yaku')) return oichoRules(tab, body);
+  koikoiRules(tab, body, R);
+}
+
+function hanaRules(tab, body) {
+  if (tab === 'how') {
+    body.innerHTML = `
+      <p class="note">花合わせは地方や家によってルールが少しずつ違います。ここではこのアプリの「2人用」ルールを説明します。</p>
+      <h3>目的</h3>
+      <p>点数の高い札をたくさん取り、決まった組み合わせ（<b>出来役</b>）を作ります。こいこいと違って途中で「あがる」ことはなく、<b>手札を全部出し切ってから点数を精算</b>します。</p>
+      <h3>札の点数</h3>
+      <table>
+        <tr><td class="nm">光</td><td>${[0, 8, 28, 40, 44].map(miniCard).join('')}</td><td class="pt">20点</td></tr>
+        <tr><td class="nm">タネ</td><td>${[4, 12, 16, 20, 24, 29, 32, 36, 41].map(miniCard).join('')}</td><td class="pt">10点</td></tr>
+        <tr><td class="nm">短冊</td><td>${[1, 5, 9, 13, 17, 21, 25, 33, 37, 42].map(miniCard).join('')}</td><td class="pt">5点</td></tr>
+        <tr><td class="nm">カス</td><td><div class="small">上記以外の24枚</div></td><td class="pt">1点</td></tr>
+      </table>
+      <p class="small">48枚ぜんぶ足すと264点です。札の種類は「札一覧」タブでも確認できます。</p>
+      <h3>配り方</h3>
+      <p>2人に手札を<b>10枚ずつ</b>、場に<b>8枚</b>を表向きに並べ、残り20枚が山札です。場に同じ月が4枚そろったら配り直します。</p>
+      <h3>1回の手番（こいこいと同じ）</h3>
+      <ol>
+        <li><b>手札から1枚出す。</b>場に同じ月の札があれば、その札と一緒に取ります。なければ場に置くだけです。</li>
+        <li><b>山札から1枚めくる。</b>同じように、場に同じ月の札があれば取れます。</li>
+        <li>場に同じ月が2枚あるときは、どちらを取るか選べます。3枚あるときは4枚まとめて取れます。</li>
+      </ol>
+      <p>親から交互に10手ずつ打ち、2人とも手札がなくなったら局の終わりです。</p>
+      <h3>精算のしかた</h3>
+      <ol>
+        <li><b>札の点</b>：取った札の点数を合計し、そこから <b>${HANA_BASE}点</b>（264点の半分）を引きます。例：150点取れば +18、120点なら −12。</li>
+        <li><b>出来役</b>：できた出来役の点を<b>相手から</b>もらいます（「役と点数」タブ参照）。</li>
+        <li>局の点 = （札の点 − ${HANA_BASE}）＋ 自分の出来役 − 相手の出来役。2人の点を足すと必ず0になります。</li>
+      </ol>
+      <p>プラスになった方がその局の勝ちで、次の局の親（先手）になります。決めた局数が終わった時点で合計点の多い方が勝ちです。</p>
+      <h3>こいこいとの違い</h3>
+      <ul>
+        <li>「こいこい」「あがり」の判断はありません。最後まで打ち切ります。</li>
+        <li>役がなくても、点の高い札（特に光とタネ）をたくさん取れば勝てます。</li>
+        <li>出来役は点が大きいので、相手に作らせない（相手が集めている札を先に取る）ことも大切です。</li>
+      </ul>
+      <h3>操作</h3>
+      <p class="note">手札をタップすると札が持ち上がり、取れる場の札が光ります → もう一度タップ（または光った札をタップ）で出します。</p>`;
+  } else {
+    body.innerHTML = `<table>${HANA_YAKU_INFO.map((y) => `<tr><td class="nm">${y.name}</td><td>${y.ex.map(miniCard).join('')}<div class="small">${y.desc}</div></td><td class="pt">${y.points}点</td></tr>`).join('')}</table>
+      <p class="note">光の役（五光・四光・三光）はいちばん高いものだけ、七短と六短もどちらか高い方だけ数えます。それ以外の出来役は重ねて数えます。柳に小野道風（雨）も光として数えます。出来役の点は相手から受け取ります。</p>`;
+  }
+}
+
+function oichoRules(tab, body) {
+  body.innerHTML = '';
+}
+
+function koikoiRules(tab, body, R) {
   if (tab === 'how') {
     body.innerHTML = `
       <h3>目的</h3>
@@ -1114,7 +1207,14 @@ function init() {
   if (loadCurrentCached()) resumeGame();
   $('#btnAgain').onclick = () => { hideOverlay('#ovMatch'); match = null; layer.innerHTML = ''; prepareSeeds(); showOverlay('#ovTitle'); };
   $('#btnMatchVerify').onclick = () => openVerify(lastLog);
-  const openRules = () => { ruleTab('how'); showOverlay('#ovRules'); sfx.play('open'); };
+  const openRules = () => {
+    ruleGame = match ? match.log.rules.mode || 'koikoi' : settings.game;
+    ruleTab('how');
+    showOverlay('#ovRules');
+    sfx.play('open');
+  };
+  $('#btnGameRules').onclick = openRules;
+  $$('#ruleGameSeg button').forEach((b) => (b.onclick = () => { ruleGame = b.dataset.v; ruleTab(); sfx.play('tap'); }));
   $('#btnRules').onclick = openRules;
   $('#btnTitleRules').onclick = openRules;
   $$('#ruleTabs button').forEach((b) => (b.onclick = () => { ruleTab(b.dataset.tab); sfx.play('tap'); }));
