@@ -253,8 +253,10 @@ function layoutCaptured(pos, cards, z, cw, p) {
       lb.className = 'group-label';
       layer.appendChild(lb);
     }
-    lb.style.transform = `translate(${gx}px, ${gy}px)`;
-    lb.innerHTML = `${KIND_LABEL[k]}<b>${list.length}</b>`;
+    const tf = `translate(${Math.round(gx)}px, ${Math.round(gy)}px)`;
+    if (lb.style.transform !== tf) lb.style.transform = tf;
+    const html = `${KIND_LABEL[k]}<b>${list.length}</b>`;
+    if (lb._html !== html) { lb.innerHTML = html; lb._html = html; }
   });
 }
 
@@ -297,9 +299,28 @@ function updateHud(s) {
   setScore('#scoreC', log.totals[CPU]);
   renderChips('#myYaku', s.captured[HUMAN], s.captured[CPU], s.rules);
   renderChips('#cpuYaku', s.captured[CPU], s.captured[HUMAN], s.rules);
-  $('#koikoiBadges').innerHTML =
-    (s.koikoi[CPU] ? `<span class="kbadge">CPU こいこい${s.koikoiCount[CPU] > 1 ? `×${s.koikoiCount[CPU]}` : ''}</span>` : '') +
-    (s.koikoi[HUMAN] ? `<span class="kbadge">あなた こいこい${s.koikoiCount[HUMAN] > 1 ? `×${s.koikoiCount[HUMAN]}` : ''}</span>` : '');
+  const badges = [];
+  if (s.koikoi[CPU]) badges.push({ k: `cpu-${s.koikoiCount[CPU]}`, cls: 'kbadge', t: `CPU こいこい${s.koikoiCount[CPU] > 1 ? `×${s.koikoiCount[CPU]}` : ''}` });
+  if (s.koikoi[HUMAN]) badges.push({ k: `me-${s.koikoiCount[HUMAN]}`, cls: 'kbadge', t: `あなた こいこい${s.koikoiCount[HUMAN] > 1 ? `×${s.koikoiCount[HUMAN]}` : ''}` });
+  reconcile($('#koikoiBadges'), badges);
+}
+
+// 差分だけ DOM を更新する。描画のたびに作り直すと入場アニメーションが繰り返されてちらつくため。
+function reconcile(box, items) {
+  const existing = new Map([...box.children].map((el) => [el.dataset.k, el]));
+  const want = new Set(items.map((it) => it.k));
+  for (const [k, el] of existing) if (!want.has(k)) el.remove();
+  items.forEach((it, i) => {
+    let el = existing.get(it.k);
+    if (!el) {
+      el = document.createElement('span');
+      el.dataset.k = it.k;
+      el.className = `${it.cls} new`;
+      el.textContent = it.t;
+      el.addEventListener('animationend', () => el.classList.remove('new'), { once: true });
+    }
+    if (box.children[i] !== el) box.insertBefore(el, box.children[i] || null);
+  });
 }
 
 function setScore(sel, v) {
@@ -319,7 +340,6 @@ const PROGRESS = [
   { name: '花見', cards: [ID.CURTAIN, ID.SAKE], need: 2 },
   { name: '月見', cards: [ID.MOON, ID.SAKE], need: 2 },
 ];
-const chipCache = {};
 function renderChips(sel, mine, opp, rules) {
   const ev = evaluate(mine, rules);
   const chips = ev.yaku.map((y) => ({ k: `d-${y.key}-${y.points}`, cls: 'done', t: `${y.name} ${y.points}` }));
@@ -339,9 +359,7 @@ function renderChips(sel, mine, opp, rules) {
       if (v >= thr - 2 && v < thr) chips.push({ k: `p-${k}-${v}`, cls: v === thr - 1 ? 'near' : '', t: `${nm} ${v}/${thr}` });
     }
   }
-  const prev = chipCache[sel] || new Set();
-  $(sel).innerHTML = chips.map((c) => `<span class="chip ${c.cls} ${prev.has(c.k) ? '' : 'new'}">${c.t}</span>`).join('');
-  chipCache[sel] = new Set(chips.map((c) => c.k));
+  reconcile($(sel), chips.map((c) => ({ ...c, cls: `chip ${c.cls}` })));
 }
 
 function matchesFor(card, field) {

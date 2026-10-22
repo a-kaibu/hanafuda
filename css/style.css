@@ -114,7 +114,7 @@ button { font: inherit; color: inherit; cursor: pointer; border: 0; background: 
 @keyframes chipIn { from { transform: scale(0); } }
 
 .cap-title { position: absolute; right: 8px; top: 4px; font-size: 10px; color: #ffffff55; letter-spacing: .1em; pointer-events: none; }
-.group-label { position: absolute; font-size: 10px; color: var(--muted); pointer-events: none; z-index: 1; white-space: nowrap; }
+.group-label { position: absolute; z-index: 5; will-change: transform; contain: layout paint; font-size: 10px; color: var(--muted); pointer-events: none; z-index: 1; white-space: nowrap; }
 .group-label b { color: var(--text); font-weight: 700; margin-left: 2px; }
 
 #hint {
@@ -124,7 +124,8 @@ button { font: inherit; color: inherit; cursor: pointer; border: 0; background: 
 #hint.dim { opacity: .55; }
 
 #koikoiBadges { position: absolute; top: 6px; right: 8px; display: flex; flex-direction: column; gap: 4px; z-index: 50; align-items: flex-end; pointer-events: none; }
-.kbadge { font-family: var(--mincho); font-weight: 800; font-size: 12px; padding: 2px 8px; border-radius: 6px; background: var(--red); color: var(--paper); box-shadow: 0 2px 6px #0007; animation: chipIn .5s; }
+.kbadge { font-family: var(--mincho); font-weight: 800; font-size: 12px; padding: 2px 8px; border-radius: 6px; background: var(--red); color: var(--paper); box-shadow: 0 2px 6px #0007; }
+.kbadge.new { animation: chipIn .5s; }
 
 .deck-count {
   position: absolute; z-index: 45; font-size: 11px; font-weight: 700; color: var(--paper);
