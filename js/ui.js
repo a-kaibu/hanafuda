@@ -691,27 +691,29 @@ function humanDecide(s) {
   const newKeys = new Set((s.newYaku || []).map((y) => y.key));
   $('#decideYaku').innerHTML = ev.yaku.map((y) => `<span class="chip done ${newKeys.has(y.key) ? 'new' : ''}">${y.name} ${y.points}</span>`).join('');
   $('#decideScore').innerHTML = `今あがると <b>${f.score}</b> 点${f.mult.length ? `（${f.mult.join('・')}）` : ''}`;
-  $('#ovDecide').classList.remove('folded');
-  $('#btnFold').onclick = () => {
-    const folded = $('#ovDecide').classList.toggle('folded');
-    $('#btnFold').textContent = folded ? '判断に戻る ▴' : '盤面を見る ▾';
-    sfx.play('tap');
-  };
-  $('#btnFold').textContent = '盤面を見る ▾';
   const left = s.hands[HUMAN].length;
   const notes = [`手札あと${left}枚`];
   if (s.koikoi[CPU]) notes.push('CPU がこいこい中：今あがると倍');
   $('#decideNote').textContent = notes.join('　');
+  setHint('あがるか、こいこいで続けるかを選んでください');
   showOverlay('#ovDecide');
+  reserveBottom($('#ovDecide .sheet').offsetHeight + 12);
   return new Promise((resolve) => {
     const done = (type) => {
       hideOverlay('#ovDecide');
+      reserveBottom(0);
       $('#btnKoikoi').onclick = $('#btnStop').onclick = null;
       resolve({ type });
     };
     $('#btnKoikoi').onclick = () => done('koikoi');
     $('#btnStop').onclick = () => done('stop');
   });
+}
+
+// 下部パネルの高さぶん卓を縮めて、手札も場も取り札もパネルに隠れないようにする
+function reserveBottom(px) {
+  $('#app').style.paddingBottom = px ? `${px}px` : '';
+  if (match) { applyLayout(match.state); updateInteractivity(match.state); }
 }
 
 function yakuRow(y, isNew = false) {
@@ -895,6 +897,7 @@ function startMatch() {
 }
 
 function quitToTitle() {
+  $('#app').style.paddingBottom = '';
   if (match && !match.log.dealerSeed) {
     lastLog = reveal(match, true);
     saveHistory(lastLog);

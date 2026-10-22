@@ -6,6 +6,7 @@ import { CARDS, ID, monthOf } from './cards.js';
 import { evaluate, evaluateHana, finalScore, KUSA } from './yaku.js';
 import { Stream } from './rng.js';
 import { apply, advance, isDecision, legalActions } from './engine.js';
+import { decideOicho } from './oicho-cpu.js';
 
 export const LEVELS = [
   { id: 1, name: '初級', desc: 'ときどき気まぐれに打つ' },
@@ -315,6 +316,7 @@ function heuristic(view, level, rng) {
 
 export function decide(view, level, cpuKey) {
   const rng = new Stream(cpuKey, `round:${view.round}:step:${view.step}`);
+  if (view.rules.mode === 'oicho') return decideOicho(view, level, rng);
   if (level === 4 && view.phase === 'play' && view.legal.length > 1) {
     // 上級の評価で候補を絞ってから仮想対局で比べる
     const unknown = unknownCards(view);

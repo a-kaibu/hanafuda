@@ -7,9 +7,10 @@
 import { monthOf } from './cards.js';
 import { evaluate, evaluateHana, hanaSettle, teyakuOf, finalScore } from './yaku.js';
 import { shuffledDeck } from './rng.js';
+import * as O from './oicho.js';
 
 const clone = (s) => JSON.parse(JSON.stringify(s));
-export const DECISION_PHASES = ['play', 'drawChoice', 'decide'];
+export const DECISION_PHASES = ['play', 'drawChoice', 'decide', ...O.OICHO_DECISIONS];
 export const isDecision = (s) => DECISION_PHASES.includes(s.phase);
 
 const fieldMatches = (field, card) => field.filter((c) => monthOf(c) === monthOf(card));
@@ -20,6 +21,11 @@ const hasFourOfMonth = (cards) => {
 };
 
 const isHana = (rules) => rules.mode === 'hanaawase';
+// おいちょかぶは別の状態機械（oicho.js）に任せる
+export const isOicho = (rules) => rules.mode === 'oicho';
+
+// 次の局の親：こいこい・花合わせは勝った方（流れなら据え置き）、おいちょかぶは交代
+export const nextOya = (prev, rules) => (isOicho(rules) ? 1 - prev.oya : (prev.result.winner ?? prev.oya));
 // 手札の枚数：こいこい8枚、花合わせ10枚。場はどちらも8枚。
 export const handSizeOf = (rules) => (isHana(rules) ? 10 : 8);
 
@@ -64,6 +70,7 @@ export function dealFrom(deck, round, oya, attempt, rules) {
 
 // 場に同じ月が4枚揃ったら配り直し（attempt を増やして別の並びを使う）
 export function newRound(deckKey, round, oya, rules) {
+  if (isOicho(rules)) return O.newRound(deckKey, round, oya, rules);
   for (let attempt = 0; attempt < 100; attempt++) {
     const deck = shuffledDeck(deckKey, round, attempt);
     const H = handSizeOf(rules);
@@ -74,6 +81,7 @@ export function newRound(deckKey, round, oya, rules) {
 }
 
 export function legalActions(s) {
+  if (isOicho(s.rules)) return O.legalActions(s);
   if (s.phase === 'play') {
     const acts = [];
     for (const card of s.hands[s.turn]) {
@@ -93,10 +101,12 @@ export function legalActions(s) {
 const sameAction = (a, b) => a.type === b.type && a.card === b.card && a.target === b.target;
 
 export function isLegal(s, action) {
+  if (isOicho(s.rules)) return O.isLegal(s, action);
   return legalActions(s).some((a) => sameAction(a, action));
 }
 
 export function apply(state, action) {
+  if (isOicho(state.rules)) return O.apply(state, action);
   if (!isLegal(state, action)) throw new Error(`illegal action ${JSON.stringify(action)} in ${state.phase}`);
   const s = clone(state);
   s.step++;
@@ -163,6 +173,7 @@ function endTurn(s) {
 
 // 自動フェーズを1段進める
 export function advance(state) {
+  if (isOicho(state.rules)) return O.advance(state);
   const s = clone(state);
   switch (s.phase) {
     case 'playCapture':
@@ -231,6 +242,7 @@ export function runAuto(state) {
 
 // プレイヤー p から見える情報だけを取り出す。CPU にはこれしか渡さない。
 export function viewFor(s, p, extra = {}) {
+  if (isOicho(s.rules)) return O.viewFor(s, p, extra);
   return {
     me: p,
     round: s.round,

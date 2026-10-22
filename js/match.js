@@ -1,6 +1,6 @@
 // 試合全体（複数の局）の管理と、記録（ログ）・検証。
 import { PROTOCOL, commitmentOf, deckKeyOf, cpuKeyOf, firstOyaOf, shuffledDeck } from './rng.js';
-import { newRound, apply, advance, runAuto, isDecision, viewFor, isLegal } from './engine.js';
+import { newRound, apply, advance, runAuto, isDecision, viewFor, isLegal, nextOya } from './engine.js';
 import { decide } from './cpu.js';
 import { sha256Hex } from './sha256.js';
 
@@ -37,7 +37,7 @@ export function startRound(m) {
   const log = m.log;
   const n = log.rounds.length + 1;
   const prev = log.rounds[n - 2];
-  const oya = prev ? (prev.result.winner ?? prev.oya) : log.firstOya;
+  const oya = prev ? nextOya(prev, log.rules) : log.firstOya;
   m.state = runAuto(newRound(m.deckKey, n, oya, log.rules));
   log.rounds.push({ round: n, oya, attempt: m.state.attempt, actions: [], result: null });
   if (m.state.phase === 'end') finishRound(m);
@@ -121,7 +121,7 @@ export function verifyLog(log, { checkCpu = true } = {}) {
   let cpuMismatch = 0;
   let prev = null;
   for (const r of log.rounds) {
-    const expectOya = prev ? (prev.result?.winner ?? prev.oya) : log.firstOya;
+    const expectOya = prev ? (prev.result ? nextOya(prev, log.rules) : null) : log.firstOya;
     if (r.oya !== expectOya) fail(`${r.round}局 親`, `親が想定と違います`);
     let s = runAuto(newRound(deckKey, r.round, r.oya, log.rules));
     const deck = shuffledDeck(deckKey, r.round, s.attempt);
