@@ -129,7 +129,6 @@ function makeCards() {
     el.innerHTML = `<div class="inner"><div class="face">${cardImg(card.id)}<span class="tag ${card.kind}">${tagText(card.id)}</span></div><div class="back">${backImg()}</div></div>`;
     el.setAttribute('aria-label', card.name);
     el.addEventListener('click', (e) => { e.stopPropagation(); onCardClick(card.id); });
-    attachPress(el, card.id);
     el.addEventListener('mouseenter', () => onCardHover(card.id, true));
     el.addEventListener('mouseleave', () => onCardHover(card.id, false));
     layer.appendChild(el);
@@ -168,11 +167,8 @@ function computeLayout(s) {
   const hy = zH.y + (zH.h - cw * 1.6) / 2 + 4;
   hand.forEach((c, i) => {
     if (c === selected) {
-      // 選んだ札は拡大して一番手前に出し、絵柄全体が見えるようにする
-      const zs = Math.max(1.15, Math.min(1.7, 150 / cw));
-      const w = cw * zs;
-      const x = Math.min(Math.max(hx0 + i * stepX + cw / 2 - w / 2, zH.x), zH.x + zH.w - w);
-      pos.set(c, { x, y: hy + cw * 1.6 - w * 1.6 - cw * 0.25, s: zs, z: 400, down: false, zone: 'hand' });
+      // 選んだ札は持ち上げて一番手前に出し、重なりに隠れず全体が見えるようにする
+      pos.set(c, { x: hx0 + i * stepX, y: hy - cw * 0.22, s: 1, z: 400, down: false, zone: 'hand' });
     } else {
       pos.set(c, { x: hx0 + i * stepX, y: hy, s: 1, z: 300 + i, down: false, zone: 'hand' });
     }
@@ -429,10 +425,9 @@ function setHint(t, dim = false) {
 // ---------------- 入力 ----------------
 function onCardClick(c) {
   sfx.unlock();
-  if (suppressClick) { suppressClick = false; return; }
-  if (!match) return;
+  if (!match || !humanWait) return;
   const s = match.state;
-  if (!humanWait || s.turn !== HUMAN) { showPreview(c); return; }
+  if (s.turn !== HUMAN) return;
   if (s.phase === 'play') {
     if (s.hands[HUMAN].includes(c)) {
       if (selected === c) {
@@ -453,56 +448,13 @@ function onCardClick(c) {
         return;
       }
     }
-    showPreview(c);
+    if (selected != null) { selected = null; render(); }
   } else if (s.phase === 'drawChoice') {
     if (matchesFor(s.drawn, s.field).includes(c)) resolveHuman({ type: 'drawChoice', target: c });
-    else showPreview(c);
-  } else {
-    showPreview(c);
   }
 }
 
-// ---- 札の拡大表示（タップ／長押し） ----
-let suppressClick = false;
-let pressTimer = null;
-function attachPress(el, c) {
-  const cancel = () => { clearTimeout(pressTimer); pressTimer = null; };
-  el.addEventListener('pointerdown', () => {
-    cancel();
-    pressTimer = setTimeout(() => {
-      pressTimer = null;
-      if (showPreview(c)) suppressClick = true;
-    }, 450);
-  });
-  el.addEventListener('pointerup', cancel);
-  el.addEventListener('pointerleave', cancel);
-  el.addEventListener('pointercancel', cancel);
-  el.addEventListener('contextmenu', (e) => e.preventDefault());
-}
 
-const YAKU_OF = [
-  { name: '五光・四光・三光', cards: [0, 8, 28, 40, 44] },
-  { name: '花見で一杯', cards: [ID.CURTAIN, ID.SAKE], rule: 'sakeYaku' },
-  { name: '月見で一杯', cards: [ID.MOON, ID.SAKE], rule: 'sakeYaku' },
-  { name: '猪鹿蝶', cards: [ID.BOAR, ID.DEER, ID.BUTTERFLY] },
-  { name: '赤短', cards: ID.AKA },
-  { name: '青短', cards: ID.AO },
-];
-function showPreview(c) {
-  const el = cardEls.get(c);
-  if (!el || el.classList.contains('down') || el.style.opacity === '0') return false;
-  const card = CARDS[c];
-  const rules = match ? match.log.rules : settings.rules;
-  const yaku = YAKU_OF.filter((y) => y.cards.includes(c) && (!y.rule || rules[y.rule])).map((y) => y.name);
-  const kindYaku = { light: null, animal: 'タネ', ribbon: 'タン', plain: 'カス' }[card.kind];
-  if (kindYaku) yaku.push(kindYaku);
-  if (c === ID.SAKE && rules.sakeAsPlain) yaku.push('カス');
-  $('#previewCard').innerHTML = cardImg(c);
-  $('#previewInfo').innerHTML = `<b>${card.name}</b><span>${MONTHS[card.month].label}（${MONTHS[card.month].name}）・${KIND_LABEL[card.kind]}</span>${yaku.length ? `<small>関わる役：${yaku.join('・')}</small>` : ''}`;
-  showOverlay('#ovPreview');
-  sfx.play('flip');
-  return true;
-}
 
 function onCardHover(c, on) {
   if (!match || !humanWait || selected != null || !matchMedia('(hover: hover)').matches) return;
@@ -525,7 +477,6 @@ table.addEventListener('click', () => {
 });
 
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && $('#ovPreview.show')) { hideOverlay('#ovPreview'); return; }
   if (!match || !humanWait || $('.overlay.show')) return;
   const s = match.state;
   if (s.phase === 'play' && s.turn === HUMAN) {
@@ -808,7 +759,8 @@ function matchEnd() {
   $('#matchBoard').innerHTML = boardHTML(log, -1);
   const box = $('#matchVerify');
   box.className = 'verify-inline wait';
-  box.textContent = '⏳ 検証中…（山札と全手を再計算しています。CPU が強いほど数秒〜数十秒かかります）';
+  box.textContent = '…';
+  box.title = '検証中';
   sfx.play(p >= c ? 'win' : 'lose');
   showOverlay('#ovMatch');
   setHint('');
@@ -817,11 +769,10 @@ function matchEnd() {
     (v) => {
       if (myGen !== gen || lastLog !== log) return;
       box.className = `verify-inline ${v.pass ? '' : 'bad'}`;
-      box.innerHTML = v.pass
-        ? `✓ 検証済み：山札は対局前のコミットメントどおり、全${log.rounds.reduce((a, r) => a + r.actions.length, 0)}手が合法、点数も一致。CPU は公開情報だけで判断していました。`
-        : `✗ 検証で不一致がありました（詳細を確認してください）`;
+      box.textContent = v.pass ? '✓' : '✗';
+      box.title = v.pass ? '検証済み' : '検証で不一致あり';
     },
-    () => { box.className = 'verify-inline bad'; box.textContent = '検証を実行できませんでした'; },
+    () => { box.className = 'verify-inline bad'; box.textContent = '✗'; },
   );
 }
 
@@ -939,7 +890,6 @@ function showOverlay(sel) {
 function hideOverlay(sel) {
   $(sel).classList.remove('show');
 }
-$('#ovPreview').addEventListener('click', () => hideOverlay('#ovPreview'));
 $$('[data-close]').forEach((b) => b.addEventListener('click', () => { b.closest('.overlay').classList.remove('show'); sfx.play('tap'); }));
 $$('.overlay').forEach((o) =>
   o.addEventListener('click', (e) => {
@@ -1016,7 +966,7 @@ function ruleTab(tab) {
         ${R.teyaku ? '<li>配られた手札に同じ月4枚（手四）か、2枚ずつ4組（くっつき）があると、その場で6点のあがりです。</li>' : ''}
       </ul>
       <h3>操作</h3>
-      <p class="note">手札をタップすると札が大きく表示され、取れる場の札が光ります → もう一度タップ（または光った札をタップ）で出します。場や取り札など表向きの札はタップ（手札は長押し）で拡大して絵柄を確認できます。PC では数字キー 1〜8 と Enter でも操作できます。</p>`;
+      <p class="note">手札をタップすると札が持ち上がり、取れる場の札が光ります → もう一度タップ（または光った札をタップ）で出します。PC では数字キー 1〜8 と Enter でも操作できます。</p>`;
   } else if (tab === 'yaku') {
     const rows = YAKU_INFO.filter((y) => R.sakeYaku || !['hanami', 'tsukimi'].includes(y.key))
       .map((y) => `<tr><td class="nm">${y.name}</td><td>${exampleCards(y.key).map(miniCard).join('')}<div class="small">${y.desc}</div></td><td class="pt">${y.points}点</td></tr>`)
@@ -1160,6 +1110,8 @@ function init() {
   $('#btnStart').onclick = startMatch;
   $('#btnResume').onclick = resumeGame;
   updateResumeButton();
+  // 対局の途中でリロード・再訪した場合は、タイトルを挟まずにそのまま続きから始める
+  if (loadCurrentCached()) resumeGame();
   $('#btnAgain').onclick = () => { hideOverlay('#ovMatch'); match = null; layer.innerHTML = ''; prepareSeeds(); showOverlay('#ovTitle'); };
   $('#btnMatchVerify').onclick = () => openVerify(lastLog);
   const openRules = () => { ruleTab('how'); showOverlay('#ovRules'); sfx.play('open'); };

@@ -73,7 +73,7 @@ export function stepAll(m) {
 function finishRound(m) {
   const r = m.log.rounds.at(-1);
   r.result = m.state.result;
-  if (r.result.winner != null) m.log.totals[r.result.winner] += r.result.score;
+  r.result.points.forEach((v, p) => { m.log.totals[p] += v; });
 }
 
 export const isMatchOver = (m) =>
@@ -147,10 +147,10 @@ export function verifyLog(log, { checkCpu = true } = {}) {
     if (r.result) {
       ok(
         `${r.round}局 結果`,
-        finished && JSON.stringify(s.result) === JSON.stringify(r.result),
+        finished && sameResult(s.result, r.result),
         finished ? `${winnerLabel(s.result.winner)} ${s.result.score}点` : '局が終わっていません',
       );
-      if (finished && s.result.winner != null) totals[s.result.winner] += s.result.score;
+      if (finished) s.result.points.forEach((v, p) => { totals[p] += v; });
     }
     prev = r;
   }
@@ -188,4 +188,10 @@ export function resumeMatch(snap) {
     stepAll(m);
   });
   return m;
+}
+
+// 以前のバージョンの記録には points などの項目がないので、記録にある項目だけを比べる
+function sameResult(computed, recorded) {
+  const pick = Object.fromEntries(Object.keys(recorded).map((k) => [k, computed[k]]));
+  return JSON.stringify(pick) === JSON.stringify(recorded);
 }

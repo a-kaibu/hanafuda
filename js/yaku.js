@@ -1,7 +1,8 @@
 // 役判定。取り札の配列から成立している役と合計点を返す。
-import { CARDS, ID, monthOf } from './cards.js';
+import { CARDS, ID, KIND_POINT, monthOf } from './cards.js';
 
 export const DEFAULT_RULES = Object.freeze({
+  mode: 'koikoi', // koikoi / hanaawase（おいちょかぶは別エンジン）
   rounds: 12, // 何月（局）まで遊ぶか
   sakeAsPlain: true, // 菊に盃をカスとしても数える
   sakeYaku: true, // 花見で一杯・月見で一杯
@@ -77,4 +78,55 @@ export function finalScore(base, rules, opponentKoikoi) {
   if (rules.sevenDouble && base >= 7) { s *= 2; mult.push('7点以上 ×2'); }
   if (rules.koikoiDouble && opponentKoikoi) { s *= 2; mult.push('こいこい返し ×2'); }
   return { score: s, mult };
+}
+
+// ================= 花合わせ =================
+// 札の点数（光20・タネ10・短冊5・カス1、合計264点）と出来役で競う。
+
+export const HANA_BASE = 132; // 2人で264点を分けるので、基準は半分の132点
+export const KUSA = [13, 17, 25]; // 藤・菖蒲・萩の短冊（草短）
+
+export const HANA_YAKU_INFO = [
+  { key: 'goko', name: '五光', points: '200', desc: '光札5枚すべて', ex: [0, 8, 28, 40, 44] },
+  { key: 'shiko', name: '四光', points: '60', desc: '光札のうち4枚', ex: [0, 8, 28, 44] },
+  { key: 'sanko', name: '三光', points: '20', desc: '光札のうち3枚', ex: [0, 8, 28] },
+  { key: 'akatan', name: '赤短', points: '40', desc: '松・梅・桜の字入り赤短冊3枚', ex: [1, 5, 9] },
+  { key: 'aotan', name: '青短', points: '40', desc: '牡丹・菊・紅葉の青短冊3枚', ex: [21, 33, 37] },
+  { key: 'kusatan', name: '草短', points: '20', desc: '藤・菖蒲・萩の短冊3枚', ex: KUSA },
+  { key: 'nanatan', name: '七短', points: '40', desc: '短冊を7枚以上（六短とは重複しない）', ex: [1, 5, 9, 13, 17, 21, 25] },
+  { key: 'rokutan', name: '六短', points: '30', desc: '短冊を6枚', ex: [1, 5, 9, 13, 17, 21] },
+  { key: 'inoshikacho', name: '猪鹿蝶', points: '20', desc: '萩に猪・紅葉に鹿・牡丹に蝶', ex: [24, 36, 20] },
+  { key: 'hanami', name: '花見で一杯', points: '20', desc: '桜に幕 + 菊に盃', ex: [8, 32] },
+  { key: 'tsukimi', name: '月見で一杯', points: '20', desc: '芒に月 + 菊に盃', ex: [28, 32] },
+];
+
+export const cardPoints = (cards) => cards.reduce((s, c) => s + KIND_POINT[CARDS[c].kind], 0);
+
+export function evaluateHana(captured) {
+  const has = new Set(captured);
+  const yaku = [];
+  const add = (key, name, points, cards) => yaku.push({ key, name, points, cards });
+  const lights = captured.filter((c) => CARDS[c].kind === 'light');
+  const ribbons = captured.filter((c) => CARDS[c].kind === 'ribbon');
+  if (lights.length === 5) add('goko', '五光', 200, lights);
+  else if (lights.length === 4) add('shiko', '四光', 60, lights);
+  else if (lights.length === 3) add('sanko', '三光', 20, lights);
+  if (ID.AKA.every((c) => has.has(c))) add('akatan', '赤短', 40, ID.AKA);
+  if (ID.AO.every((c) => has.has(c))) add('aotan', '青短', 40, ID.AO);
+  if (KUSA.every((c) => has.has(c))) add('kusatan', '草短', 20, KUSA);
+  if (ribbons.length >= 7) add('nanatan', '七短', 40, ribbons);
+  else if (ribbons.length === 6) add('rokutan', '六短', 30, ribbons);
+  const isc = [ID.BOAR, ID.DEER, ID.BUTTERFLY];
+  if (isc.every((c) => has.has(c))) add('inoshikacho', '猪鹿蝶', 20, isc);
+  if (has.has(ID.SAKE) && has.has(ID.CURTAIN)) add('hanami', '花見で一杯', 20, [ID.CURTAIN, ID.SAKE]);
+  if (has.has(ID.SAKE) && has.has(ID.MOON)) add('tsukimi', '月見で一杯', 20, [ID.MOON, ID.SAKE]);
+  return { yaku, total: yaku.reduce((s, y) => s + y.points, 0) };
+}
+
+// 局の精算（ゼロサム）：(札の点 − 132) + 自分の出来役 − 相手の出来役
+export function hanaSettle(captured) {
+  const cp = captured.map(cardPoints);
+  const ev = captured.map((c) => evaluateHana(c));
+  const points = [0, 1].map((p) => cp[p] - HANA_BASE + ev[p].total - ev[1 - p].total);
+  return { cardPoints: cp, yaku: ev.map((e) => e.yaku), yakuTotal: ev.map((e) => e.total), points };
 }

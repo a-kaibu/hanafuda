@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { sha256, utf8, toHex } from '../js/sha256.js';
 import { shuffledDeck, deckKeyOf, randomHex } from '../js/rng.js';
-import { evaluate, DEFAULT_RULES, teyakuOf, finalScore } from '../js/yaku.js';
+import { evaluate, evaluateHana, DEFAULT_RULES, teyakuOf, finalScore } from '../js/yaku.js';
 import { createMatch, act, stepAll, snapshot, resumeMatch, cpuView, startRound, isMatchOver, reveal, verifyLog, HUMAN, CPU } from '../js/match.js';
 import { decide } from '../js/cpu.js';
 import { legalActions, runAuto } from '../js/engine.js';
@@ -50,8 +50,8 @@ test('yaku', () => {
   assert.equal(finalScore(3, R, false).score, 3);
 });
 
-function playMatch(levels, rounds = 12) {
-  const rules = { ...DEFAULT_RULES, rounds };
+function playMatch(levels, rounds = 12, mode = 'koikoi') {
+  const rules = { ...DEFAULT_RULES, rounds, mode };
   const m = createMatch({ dealerSeed: randomHex(), cpuSeed: randomHex(), playerSeed: randomHex(8), rules, cpuLevel: levels[1] });
   const humanKey = 'f'.repeat(64);
   for (;;) {
@@ -127,4 +127,24 @@ test('resume from snapshot reproduces the same state', () => {
   assert.deepEqual(r.state, m.state);
   assert.deepEqual(r.log.rounds, m.log.rounds);
   assert.equal(r.log.commitment, m.log.commitment);
+});
+
+test('hanaawase: deals 10/8/10, zero-sum settlement, verifies', () => {
+  for (const lv of [1, 3, 4]) {
+    const log = JSON.parse(JSON.stringify(playMatch([2, lv], lv === 4 ? 2 : 4, 'hanaawase')));
+    for (const r of log.rounds) {
+      assert.equal(r.result.points[0] + r.result.points[1], 0);
+      assert.equal(r.result.hana.cardPoints[0] + r.result.hana.cardPoints[1], 264);
+      assert.equal(r.actions.filter((a) => a.type === 'play').length, 20);
+    }
+    const v = verifyLog(log);
+    assert.ok(v.pass, JSON.stringify(v.checks.filter((c) => !c.pass)));
+  }
+});
+
+test('hana yaku', () => {
+  assert.equal(evaluateHana([0, 8, 28, 40, 44]).total, 200);
+  assert.equal(evaluateHana([0, 8, 40]).total, 20);
+  assert.equal(evaluateHana([1, 5, 9, 13, 17, 25]).total, 40 + 20 + 30);
+  assert.equal(evaluateHana([8, 28, 32]).total, 20 + 20 + 0);
 });

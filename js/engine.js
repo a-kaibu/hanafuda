@@ -1,10 +1,11 @@
-// こいこいの1局ぶんの状態機械。純粋関数のみで、同じ山札と同じ行動列からは必ず同じ結果になる。
+// こいこい・花合わせの1局ぶんの状態機械。純粋関数のみで、同じ山札と同じ行動列からは必ず同じ結果になる。
+// rules.mode が 'hanaawase' のときは、こいこいの判断がなく手札を出し切って札の点数で精算する。
 //
 // 意思決定フェーズ（プレイヤーが選ぶ）: play / drawChoice / decide
 // 自動フェーズ（advance で進む）     : playCapture / draw / drawReveal / drawCapture / check
 // 終了                               : end
 import { monthOf } from './cards.js';
-import { evaluate, teyakuOf, finalScore } from './yaku.js';
+import { evaluate, evaluateHana, hanaSettle, teyakuOf, finalScore } from './yaku.js';
 import { shuffledDeck } from './rng.js';
 
 const clone = (s) => JSON.parse(JSON.stringify(s));
@@ -18,17 +19,22 @@ const hasFourOfMonth = (cards) => {
   return n.some((x) => x === 4);
 };
 
-// 配り方: 山札の先頭8枚が親の手札、次の8枚が場、次の8枚が子の手札、残り24枚が山札（先頭から引く）
+const isHana = (rules) => rules.mode === 'hanaawase';
+// 手札の枚数：こいこい8枚、花合わせ10枚。場はどちらも8枚。
+export const handSizeOf = (rules) => (isHana(rules) ? 10 : 8);
+
+// 配り方: 山札の先頭 H 枚が親の手札、次の8枚が場、次の H 枚が子の手札、残りが山札（先頭から引く）
 export function dealFrom(deck, round, oya, attempt, rules) {
   const ko = 1 - oya;
+  const H = handSizeOf(rules);
   const hands = [[], []];
-  hands[oya] = deck.slice(0, 8);
-  hands[ko] = deck.slice(16, 24);
+  hands[oya] = deck.slice(0, H);
+  hands[ko] = deck.slice(H + 8, 2 * H + 8);
   const s = {
     round, oya, attempt, rules,
-    deck: deck.slice(24),
+    deck: deck.slice(2 * H + 8),
     hands,
-    field: deck.slice(8, 16),
+    field: deck.slice(H, H + 8),
     captured: [[], []],
     turn: oya,
     phase: 'play',
@@ -43,12 +49,12 @@ export function dealFrom(deck, round, oya, attempt, rules) {
     turnStartCap: 0,
     result: null,
   };
-  if (rules.teyaku) {
+  if (rules.teyaku && !isHana(rules)) {
     for (const p of [oya, ko]) {
       const t = teyakuOf(s.hands[p]);
       if (t) {
         s.phase = 'end';
-        s.result = { winner: p, base: t.points, score: t.points, mult: [], yaku: [t], teyaku: true };
+        s.result = { winner: p, base: t.points, score: t.points, mult: [], yaku: [t], teyaku: true, points: pointsFor(p, t.points) };
         break;
       }
     }
@@ -60,7 +66,8 @@ export function dealFrom(deck, round, oya, attempt, rules) {
 export function newRound(deckKey, round, oya, rules) {
   for (let attempt = 0; attempt < 100; attempt++) {
     const deck = shuffledDeck(deckKey, round, attempt);
-    if (hasFourOfMonth(deck.slice(8, 16))) continue;
+    const H = handSizeOf(rules);
+    if (hasFourOfMonth(deck.slice(H, H + 8))) continue;
     return dealFrom(deck, round, oya, attempt, rules);
   }
   throw new Error('deal failed');
@@ -127,18 +134,26 @@ function capturePending(s) {
   s.pending = null;
 }
 
+const pointsFor = (p, score) => (p === 0 ? [score, 0] : [0, score]);
+
 function win(s, p) {
   const ev = evaluate(s.captured[p], s.rules);
   const f = finalScore(ev.total, s.rules, s.koikoi[1 - p]);
   s.phase = 'end';
   s.newYaku = null;
-  s.result = { winner: p, base: ev.total, score: f.score, mult: f.mult, yaku: ev.yaku };
+  s.result = { winner: p, base: ev.total, score: f.score, mult: f.mult, yaku: ev.yaku, points: pointsFor(p, f.score) };
 }
 
 function endTurn(s) {
   if (s.hands[0].length === 0 && s.hands[1].length === 0) {
     s.phase = 'end';
-    s.result = { winner: null, base: 0, score: 0, mult: [], yaku: [] };
+    if (isHana(s.rules)) {
+      const st = hanaSettle(s.captured);
+      const winner = st.points[0] > st.points[1] ? 0 : st.points[1] > st.points[0] ? 1 : null;
+      s.result = { winner, score: winner == null ? 0 : st.points[winner], mult: [], yaku: winner == null ? [] : st.yaku[winner], points: st.points, hana: st };
+    } else {
+      s.result = { winner: null, base: 0, score: 0, mult: [], yaku: [], points: [0, 0] };
+    }
     return;
   }
   s.turn = 1 - s.turn;
@@ -180,6 +195,15 @@ export function advance(state) {
     case 'check': {
       const p = s.turn;
       s.turnsTaken[p]++;
+      if (isHana(s.rules)) {
+        // 花合わせ：こいこいはなく、新しくできた出来役を知らせるだけ
+        const prev = new Set(evaluateHana(s.captured[p].slice(0, s.turnStartCap)).yaku.map((y) => y.key));
+        const now = evaluateHana(s.captured[p]).yaku;
+        s.newYaku = now.filter((y) => !prev.has(y.key));
+        if (!s.newYaku.length) s.newYaku = null;
+        endTurn(s);
+        break;
+      }
       const ev = evaluate(s.captured[p], s.rules);
       if (ev.total > s.lastScore[p]) {
         const prev = evaluate(s.captured[p].slice(0, s.turnStartCap), s.rules).yaku;

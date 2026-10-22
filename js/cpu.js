@@ -3,7 +3,7 @@
 // 相手の手札と山札の順番は一切渡されないので、見ることも変えることもできない。
 // 乱数は cpuKey と局・手番から決まるので、同じ公開情報からは必ず同じ手を選ぶ（後から再現検証できる）。
 import { CARDS, ID, monthOf } from './cards.js';
-import { evaluate, finalScore } from './yaku.js';
+import { evaluate, evaluateHana, finalScore, KUSA } from './yaku.js';
 import { Stream } from './rng.js';
 import { apply, advance, isDecision, legalActions } from './engine.js';
 
@@ -26,11 +26,43 @@ const SETS = [
   { cards: [ID.CRANE, ID.CURTAIN, ID.MOON, ID.PHOENIX], need: 3, pts: 5 },
 ];
 
+// 花合わせ用：札そのものの点数が大きく、出来役は相手からも取れる
+const HANA_BASE_V = { light: 8, animal: 4, ribbon: 2, plain: 0.4 };
+const HANA_SETS = [
+  { cards: [ID.BOAR, ID.DEER, ID.BUTTERFLY], need: 3, pts: 20 },
+  { cards: ID.AKA, need: 3, pts: 40 },
+  { cards: ID.AO, need: 3, pts: 40 },
+  { cards: KUSA, need: 3, pts: 20 },
+  { cards: [ID.CURTAIN, ID.SAKE], need: 2, pts: 20 },
+  { cards: [ID.MOON, ID.SAKE], need: 2, pts: 20 },
+  { cards: [ID.CRANE, ID.CURTAIN, ID.MOON, ID.RAINMAN, ID.PHOENIX], need: 3, pts: 20 },
+];
+const isHana = (rules) => rules.mode === 'hanaawase';
+
+function cardValueHana(c, mine, opp) {
+  const card = CARDS[c];
+  let v = HANA_BASE_V[card.kind];
+  for (const S of HANA_SETS) {
+    if (!S.cards.includes(c)) continue;
+    const oppIn = S.cards.filter((x) => opp.includes(x)).length;
+    if (S.cards.length - oppIn < S.need) continue;
+    const have = S.cards.filter((x) => mine.includes(x)).length + 1;
+    v += (S.pts * have) / S.need / 6;
+    if (have === S.need) v += S.pts / 2.5;
+  }
+  if (card.kind === 'ribbon') {
+    const n = mine.filter((x) => CARDS[x].kind === 'ribbon').length + 1;
+    if (n >= 5) v += 2;
+  }
+  return v;
+}
+
 const kindCount = (cards, kind, rules) =>
   cards.filter((c) => CARDS[c].kind === kind || (kind === 'plain' && rules.sakeAsPlain && c === ID.SAKE)).length;
 
 // 札 c を「mine を持っている側」が取ったときの価値（opp は相手の取り札）
 function cardValue(c, mine, opp, rules) {
+  if (isHana(rules)) return cardValueHana(c, mine, opp);
   const card = CARDS[c];
   let v = BASE[card.kind];
   for (const S of SETS) {
@@ -63,7 +95,8 @@ function gain(cards, mine, opp, rules, denial = 0.7) {
     v += cardValue(c, m, opp, rules) + denial * cardValue(c, opp, m, rules);
     m.push(c);
   }
-  v += 4 * (evaluate(m, rules).total - evaluate(mine, rules).total);
+  if (isHana(rules)) v += (evaluateHana(m).total - evaluateHana(mine).total) / 3;
+  else v += 4 * (evaluate(m, rules).total - evaluate(mine, rules).total);
   return v;
 }
 
@@ -138,8 +171,10 @@ function scorePlay(view, a, level, unknown) {
   }
   if (level >= 3) {
     const mine2 = [...mine, ...r.taken];
-    v += 0.8 * drawEV(r.field, mine2, opp, view, unknown);
-    v -= 0.6 * exposure(r.field, view, mine2, opp, unknown);
+    // 花合わせは札点の振れ幅が大きく、山札の期待値を足すとかえって弱くなった（自動対戦で確認）
+    const [de, ex] = isHana(view.rules) ? [0, 0.3] : [0.8, 0.6];
+    v += de * drawEV(r.field, mine2, opp, view, unknown);
+    v -= ex * exposure(r.field, view, mine2, opp, unknown);
   }
   return v;
 }
@@ -182,8 +217,7 @@ function playout(s, maxSteps = 200) {
     if (isDecision(st)) st = apply(st, heuristic(fastView(st, st.turn), PLAYOUT_LEVEL, null));
     else st = advance(st);
   }
-  const r = st.result;
-  return r && r.winner != null ? { winner: r.winner, score: r.score } : { winner: null, score: 0 };
+  return st.result ? st.result.points : [0, 0];
 }
 
 function montecarlo(view, candidates, rng, worlds) {
@@ -192,8 +226,8 @@ function montecarlo(view, candidates, rng, worlds) {
   for (let w = 0; w < worlds; w++) {
     const world = sampleWorld(view, rng);
     candidates.forEach((a, i) => {
-      const res = playout(apply(world, a));
-      totals[i] += res.winner === me ? res.score : res.winner == null ? 0 : -res.score;
+      const pts = playout(apply(world, a));
+      totals[i] += (pts[me] - pts[1 - me]) / (isHana(view.rules) ? 10 : 1);
     });
   }
   return totals.map((t) => t / worlds);
