@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { sha256, utf8, toHex } from '../js/sha256.js';
 import { shuffledDeck, deckKeyOf, randomHex } from '../js/rng.js';
 import { evaluate, DEFAULT_RULES, teyakuOf, finalScore } from '../js/yaku.js';
-import { createMatch, act, stepAll, cpuView, startRound, isMatchOver, reveal, verifyLog, HUMAN, CPU } from '../js/match.js';
+import { createMatch, act, stepAll, snapshot, resumeMatch, cpuView, startRound, isMatchOver, reveal, verifyLog, HUMAN, CPU } from '../js/match.js';
 import { decide } from '../js/cpu.js';
 import { legalActions, runAuto } from '../js/engine.js';
 import { CARDS } from '../js/cards.js';
@@ -105,4 +105,26 @@ test('strength ordering (rough)', () => {
   };
   console.log('lv3 vs lv1 avg diff', tally(1, 3, 20));
   console.log('lv3 vs lv2 avg diff', tally(2, 3, 20));
+});
+
+test('resume from snapshot reproduces the same state', () => {
+  const rules = { ...DEFAULT_RULES, rounds: 3 };
+  const m = createMatch({ dealerSeed: 'a'.repeat(64), cpuSeed: 'b'.repeat(64), playerSeed: 'p', rules, cpuLevel: 2 });
+  let n = 0;
+  outer: for (;;) {
+    while (stepAll(m).phase !== 'end') {
+      const s = m.state;
+      const v = cpuView(m);
+      const view = s.turn === CPU ? v : { ...v, me: HUMAN, hand: [...s.hands[HUMAN]], oppHandCount: s.hands[CPU].length };
+      act(m, s.turn, decide(view, 2, m.cpuKey));
+      if (++n === 25) break outer;
+    }
+    if (isMatchOver(m)) break;
+    startRound(m);
+  }
+  const r = resumeMatch(JSON.parse(JSON.stringify(snapshot(m))));
+  stepAll(m);
+  assert.deepEqual(r.state, m.state);
+  assert.deepEqual(r.log.rounds, m.log.rounds);
+  assert.equal(r.log.commitment, m.log.commitment);
 });

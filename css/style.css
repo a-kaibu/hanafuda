@@ -327,6 +327,7 @@ details.more summary { cursor: pointer; font-size: 13px; font-weight: 700; color
 .match-score { font-family: var(--mincho); font-size: 40px; margin: 6px 0; }
 .match-score span { font-size: 14px; color: #6b5a44; margin: 0 6px; }
 .verify-inline { margin-top: 12px; font-size: 12px; padding: 8px 10px; border-radius: 10px; background: #e7f2e4; color: #1d5a2a; border: 1px solid #b6d6ae; text-align: left; }
+.verify-inline.wait { background: #fff4d2; color: #6b4a00; border-color: #e8d39a; }
 .verify-inline.bad { background: #f9e0e0; color: #8e1b1f; border-color: #e3aaaa; }
 
 /* ルール */
@@ -429,3 +430,7 @@ textarea.logbox { width: 100%; min-height: 90px; font-family: ui-monospace, Menl
 .preview-info small { font-size: 12px; color: var(--muted); }
 .preview-close { font-size: 11px; color: #ffffff66; }
 .card { -webkit-touch-callout: none; }
+
+.primary.resume { background: linear-gradient(#2c2a27, #111); color: var(--gold-2); box-shadow: 0 4px 0 #000; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.primary.resume small { font-family: var(--gothic); font-size: 11px; letter-spacing: 0; color: #e9dcbf; font-weight: 400; }
+.primary[hidden] { display: none; }

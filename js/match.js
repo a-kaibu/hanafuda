@@ -161,3 +161,31 @@ export function verifyLog(log, { checkCpu = true } = {}) {
 }
 
 const winnerLabel = (w) => (w === HUMAN ? 'あなた' : w === CPU ? 'CPU' : '流局');
+
+// ---- 中断と再開 ----
+// 保存するのは「種・設定・これまでの行動」だけ。再開時は同じ種から最初の局面を作り、
+// 行動を順に再生して元の局面に戻す。山札は種で固定なので、リロードしても引き直しにはならない。
+export function snapshot(m) {
+  const { dealerSeed, cpuSeed } = m.secret;
+  const l = m.log;
+  return {
+    v: 1,
+    params: { dealerSeed, cpuSeed, playerSeed: l.playerSeed, rules: l.rules, cpuLevel: l.cpuLevel },
+    startedAt: l.startedAt,
+    rounds: l.rounds.map((r) => r.actions),
+  };
+}
+
+export function resumeMatch(snap) {
+  const m = createMatch(snap.params);
+  m.log.startedAt = snap.startedAt;
+  snap.rounds.forEach((actions, i) => {
+    if (i > 0) startRound(m);
+    for (const { p, ...action } of actions) {
+      stepAll(m);
+      act(m, p, action);
+    }
+    stepAll(m);
+  });
+  return m;
+}

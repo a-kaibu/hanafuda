@@ -6,6 +6,7 @@ import { LEVELS, decide } from './cpu.js';
 import * as sfx from './audio.js';
 import {
   HUMAN, CPU, createMatch, startRound, act, step, cpuView, isMatchOver, reveal, verifyLog,
+  snapshot, resumeMatch,
 } from './match.js';
 
 const $ = (s) => document.querySelector(s);
@@ -21,6 +22,7 @@ const layer = $('#layer');
 // ---------------- 設定 ----------------
 const SETTINGS_KEY = 'hanafuda.settings.v1';
 const HISTORY_KEY = 'hanafuda.history.v1';
+const CURRENT_KEY = 'hanafuda.current.v1'; // 対局中の種と行動（リロード後の再開用）
 const settings = Object.assign(
   { sound: true, volume: 0.7, tags: true, hints: true, speed: 1, level: 2, rounds: 12, rules: { ...DEFAULT_RULES } },
   safeJSON(localStorage.getItem(SETTINGS_KEY)),
@@ -63,6 +65,32 @@ function askCpu(view, level, cpuKey) {
     waiting.set(id, { resolve, reject });
     worker.postMessage({ id, view, level, cpuKey });
   }).catch(() => decide(structuredClone(view), level, cpuKey));
+}
+
+// ---------------- 検証（Web Worker） ----------------
+let verifier = null;
+let verifyId = 0;
+const verifyWaiting = new Map();
+function verifyAsync(log) {
+  if (!verifier) {
+    try {
+      verifier = new Worker(new URL('./verify-worker.js', import.meta.url), { type: 'module' });
+      verifier.onmessage = (e) => {
+        const w = verifyWaiting.get(e.data.id);
+        if (!w) return;
+        verifyWaiting.delete(e.data.id);
+        e.data.error ? w.reject(new Error(e.data.error)) : w.resolve(e.data.result);
+      };
+    } catch {
+      verifier = false;
+    }
+  }
+  if (!verifier) return new Promise((r) => setTimeout(() => r(verifyLog(log)), 30));
+  return new Promise((resolve, reject) => {
+    const id = ++verifyId;
+    verifyWaiting.set(id, { resolve, reject });
+    verifier.postMessage({ id, log });
+  });
 }
 
 // ---------------- 状態 ----------------
@@ -576,9 +604,16 @@ async function dealAnimation() {
 }
 
 // ---------------- ゲーム進行 ----------------
-async function gameLoop(myGen) {
+async function gameLoop(myGen, { resume = false } = {}) {
   const alive = () => myGen === gen;
-  await dealAnimation();
+  if (resume) {
+    slots = [];
+    lastZone = new Map();
+    applyLayout(match.state, { instant: true });
+    void layer.offsetWidth;
+  } else {
+    await dealAnimation();
+  }
   while (alive()) {
     const s = match.state;
     render();
@@ -587,6 +622,7 @@ async function gameLoop(myGen) {
       if (!alive()) return;
       if (isMatchOver(match)) { matchEnd(); return; }
       startRound(match);
+      saveCurrent();
       await dealAnimation();
       continue;
     }
@@ -604,6 +640,7 @@ async function gameLoop(myGen) {
       if (!alive()) return;
       const before = s;
       act(match, before.turn, action);
+      saveCurrent();
       await afterAction(before, action);
     } else {
       const before = s;
@@ -759,6 +796,7 @@ function roundEnd() {
 }
 
 function matchEnd() {
+  clearCurrent();
   const log = reveal(match);
   lastLog = log;
   saveHistory(log);
@@ -768,15 +806,23 @@ function matchEnd() {
   head.className = `match-head ${p > c ? 'win' : p < c ? 'lose' : ''}`;
   $('#matchScore').innerHTML = `${p}<span>対</span>${c}`;
   $('#matchBoard').innerHTML = boardHTML(log, -1);
-  const v = verifyLog(log);
   const box = $('#matchVerify');
-  box.className = `verify-inline ${v.pass ? '' : 'bad'}`;
-  box.innerHTML = v.pass
-    ? `✓ 検証済み：山札は対局前のコミットメントどおり、全${log.rounds.reduce((a, r) => a + r.actions.length, 0)}手が合法、点数も一致。CPU は公開情報だけで判断していました。`
-    : `✗ 検証で不一致がありました（詳細を確認してください）`;
+  box.className = 'verify-inline wait';
+  box.textContent = '⏳ 検証中…（山札と全手を再計算しています。CPU が強いほど数秒〜数十秒かかります）';
   sfx.play(p >= c ? 'win' : 'lose');
   showOverlay('#ovMatch');
   setHint('');
+  const myGen = gen;
+  verifyAsync(log).then(
+    (v) => {
+      if (myGen !== gen || lastLog !== log) return;
+      box.className = `verify-inline ${v.pass ? '' : 'bad'}`;
+      box.innerHTML = v.pass
+        ? `✓ 検証済み：山札は対局前のコミットメントどおり、全${log.rounds.reduce((a, r) => a + r.actions.length, 0)}手が合法、点数も一致。CPU は公開情報だけで判断していました。`
+        : `✗ 検証で不一致がありました（詳細を確認してください）`;
+    },
+    () => { box.className = 'verify-inline bad'; box.textContent = '検証を実行できませんでした'; },
+  );
 }
 
 function saveHistory(log) {
@@ -792,7 +838,62 @@ function loadHistory() {
   return Array.isArray(h) ? h : [];
 }
 
+// ---- 中断と再開 ----
+function saveCurrent() {
+  try { if (match && !match.log.dealerSeed) localStorage.setItem(CURRENT_KEY, JSON.stringify(snapshot(match))); } catch {}
+}
+function clearCurrent() {
+  try { localStorage.removeItem(CURRENT_KEY); } catch {}
+  updateResumeButton();
+}
+function loadCurrent() {
+  const snap = safeJSON(localStorage.getItem(CURRENT_KEY));
+  if (!snap || snap.v !== 1 || !snap.params) return null;
+  try { return resumeMatch(snap); } catch { return null; }
+}
+function updateResumeButton() {
+  const btn = $('#btnResume');
+  const m = loadCurrentCached();
+  btn.hidden = !m;
+  if (m) btn.innerHTML = `続きから<small>第${m.state.round}局・あなた ${m.log.totals[HUMAN]} − ${m.log.totals[CPU]} CPU（${LEVELS.find((l) => l.id === m.log.cpuLevel).name}）</small>`;
+}
+let resumeCache;
+function loadCurrentCached() {
+  if (resumeCache === undefined) resumeCache = loadCurrent();
+  return resumeCache;
+}
+// 途中の対局を捨てて新しく始める場合は「中断」として種を公開し記録に残す
+function abandonSaved() {
+  const m = loadCurrentCached();
+  if (m) {
+    lastLog = reveal(m, true);
+    saveHistory(lastLog);
+  }
+  resumeCache = null;
+  clearCurrent();
+}
+function resumeGame() {
+  const m = loadCurrentCached();
+  if (!m) return;
+  sfx.unlock();
+  sfx.play('open');
+  gen++;
+  match = m;
+  resumeCache = undefined;
+  $('#cpuLevelLabel').textContent = LEVELS.find((l) => l.id === match.log.cpuLevel).name;
+  makeCards();
+  setScore('#scoreP', match.log.totals[HUMAN]);
+  setScore('#scoreC', match.log.totals[CPU]);
+  $$('.overlay').forEach((o) => o.classList.remove('show'));
+  toast(`第${match.state.round}局の続きから再開します`);
+  gameLoop(gen, { resume: true });
+}
+
 function startMatch() {
+  if (loadCurrentCached()) {
+    if (!confirm('中断中の対局があります。新しく始めると、前の対局は「中断」として記録されます。よろしいですか？')) return;
+    abandonSaved();
+  }
   sfx.unlock();
   sfx.play('open');
   const playerSeed = $('#playerSeed').value.trim() || randomHex(8);
@@ -810,6 +911,7 @@ function startMatch() {
   makeCards();
   hideOverlay('#ovTitle');
   hideOverlay('#ovMatch');
+  saveCurrent();
   toast(`第1局は${match.log.firstOya === HUMAN ? 'あなた' : 'CPU'}が親です`);
   gameLoop(gen);
 }
@@ -819,6 +921,7 @@ function quitToTitle() {
     lastLog = reveal(match, true);
     saveHistory(lastLog);
   }
+  clearCurrent();
   gen++;
   if (humanWait) humanWait = null;
   match = null;
@@ -964,7 +1067,7 @@ function openVerify(log = null) {
       <p class="small">コミットメントをメモしておけば、終局後に公開される種と一致するか自分で確かめられます。</p>`;
   }
   const target = log || lastLog;
-  if (target) h += verifyReport(target);
+  if (target) h += '<div id="verifyReport"><div class="verdict wait">⏳ 検証中…（山札と全手を再計算しています）</div></div>';
   h += `<h3 style="font-family:var(--mincho)">記録を読み込んで検証</h3>
     <textarea class="logbox" id="logInput" placeholder="ここに記録(JSON)を貼り付け"></textarea>
     <div class="btn-row"><button class="secondary" id="btnPasteVerify">貼り付けた記録を検証</button><label class="secondary" style="text-align:center;cursor:pointer">ファイルを選ぶ<input type="file" id="logFile" accept="application/json,.json" hidden></label></div>`;
@@ -985,18 +1088,25 @@ function openVerify(log = null) {
     try { openVerify(JSON.parse(await f.text())); } catch { toast('JSON として読めませんでした'); }
   };
   $$('[data-hist]').forEach((b) => (b.onclick = () => openVerify(hist[Number(b.dataset.hist)])));
-  const dl = $('#btnDownload');
-  if (dl) dl.onclick = () => download(target);
-  const cp = $('#btnCopyLog');
-  if (cp) cp.onclick = async () => {
-    try { await navigator.clipboard.writeText(JSON.stringify(target)); toast('コピーしました'); } catch { toast('コピーできませんでした'); }
-  };
   showOverlay('#ovVerify');
   $('#ovVerify .sheet').scrollTop = 0;
+  if (!target) return;
+  const token = ++verifyViewToken;
+  verifyAsync(target).then((v) => {
+    const slot = $('#verifyReport');
+    if (!slot || token !== verifyViewToken) return;
+    slot.innerHTML = verifyReport(target, v);
+    const dl = $('#btnDownload');
+    if (dl) dl.onclick = () => download(target);
+    const cp = $('#btnCopyLog');
+    if (cp) cp.onclick = async () => {
+      try { await navigator.clipboard.writeText(JSON.stringify(target)); toast('コピーしました'); } catch { toast('コピーできませんでした'); }
+    };
+  });
 }
+let verifyViewToken = 0;
 
-function verifyReport(log) {
-  const v = verifyLog(log);
+function verifyReport(log, v) {
   let h = '';
   if (!log.dealerSeed) {
     h += `<div class="verdict wait">⏳ まだ種が公開されていない記録です</div>`;
@@ -1048,6 +1158,8 @@ function init() {
 
   $('#reseed').onclick = () => { $('#playerSeed').value = randomHex(8); sfx.play('tap'); };
   $('#btnStart').onclick = startMatch;
+  $('#btnResume').onclick = resumeGame;
+  updateResumeButton();
   $('#btnAgain').onclick = () => { hideOverlay('#ovMatch'); match = null; layer.innerHTML = ''; prepareSeeds(); showOverlay('#ovTitle'); };
   $('#btnMatchVerify').onclick = () => openVerify(lastLog);
   const openRules = () => { ruleTab('how'); showOverlay('#ovRules'); sfx.play('open'); };
