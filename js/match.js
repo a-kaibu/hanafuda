@@ -124,7 +124,8 @@ export function verifyLog(log, { checkCpu = true } = {}) {
     const expectOya = prev ? (prev.result ? nextOya(prev, log.rules) : null) : log.firstOya;
     if (r.oya !== expectOya) fail(`${r.round}局 親`, `親が想定と違います`);
     let s = runAuto(newRound(deckKey, r.round, r.oya, log.rules));
-    const deck = shuffledDeck(deckKey, r.round, s.attempt);
+    // おいちょかぶは11月・12月を抜いた40枚を同じ順で使う
+    const deck = shuffledDeck(deckKey, r.round, s.attempt).filter((c) => log.rules.mode !== 'oicho' || c < 40);
     rounds.push({ round: r.round, deck, attempt: s.attempt, initial: { hands: s.hands, field: s.field } });
     if (s.attempt !== r.attempt) fail(`${r.round}局 配り直し`, '配り直し回数が一致しません');
     let illegal = null;

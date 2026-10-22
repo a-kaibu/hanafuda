@@ -448,3 +448,61 @@ details.more[hidden] { display: none; }
 .peek .decide-note { margin: 2px 0 8px; font-size: 11px; }
 .peek .choice { padding: 10px 8px; }
 .peek .choice b { font-size: 19px; }
+
+/* ---------- おいちょかぶ ---------- */
+.oi-center { display: none; }
+body.mode-oicho #table {
+  grid-template-columns: 1fr;
+  grid-template-rows: minmax(120px, 1fr) minmax(140px, .75fr) minmax(170px, 1.25fr) 30px;
+  grid-template-areas: "cpuhand" "field" "hand" "hint";
+}
+body.mode-oicho #zCpuCap, body.mode-oicho #zMyCap, body.mode-oicho #koikoiBadges { display: none; }
+body.mode-oicho .seat { top: 10px; transform: none; }
+body.mode-oicho .oi-center {
+  display: flex; position: absolute; inset: 0 10px 0 calc(var(--cw) * .8 + 34px);
+  flex-direction: column; align-items: center; justify-content: center; gap: 12px; z-index: 60;
+}
+.oi-bet { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); min-height: 30px; }
+.oi-bet b { font-family: var(--mincho); font-size: 28px; color: var(--gold-2); line-height: 1; }
+.oi-bet .coins { display: flex; }
+.oi-bet .coins i {
+  width: 20px; height: 20px; margin-left: -7px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff3c4, #e2b649 45%, #9c7016);
+  box-shadow: 0 2px 3px #0008, inset 0 0 0 2px #fff4; animation: coinIn .45s cubic-bezier(.2, 1.5, .4, 1) backwards;
+}
+.oi-bet .coins i:nth-child(2) { animation-delay: .06s; }
+.oi-bet .coins i:nth-child(3) { animation-delay: .12s; }
+.oi-bet .coins i:nth-child(4) { animation-delay: .18s; }
+.oi-bet .coins i:nth-child(5) { animation-delay: .24s; }
+@keyframes coinIn { from { transform: translateY(-26px) scale(.6); opacity: 0; } }
+.oi-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; min-height: 0; }
+.oi-btn { pointer-events: auto; animation: chipIn .35s cubic-bezier(.2, 1.5, .4, 1); transition: transform .1s; }
+.oi-btn:active { transform: translateY(2px); }
+.oi-btn.bet {
+  width: 52px; height: 52px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff3c4, #e2b649 45%, #9c7016); color: #3a2606;
+  box-shadow: 0 4px 0 #6b4a0c, 0 6px 14px #0008, inset 0 0 0 3px #fff5;
+}
+.oi-btn.bet b { font-family: var(--mincho); font-size: 22px; }
+.oi-btn.hit, .oi-btn.stand { padding: 12px 22px; border-radius: 14px; }
+.oi-btn.hit { background: linear-gradient(#d33a3f, #a51b22); color: #fff; box-shadow: 0 4px 0 #6d1015; }
+.oi-btn.stand { background: linear-gradient(#2c2a27, #111); color: var(--gold-2); box-shadow: 0 4px 0 #000; }
+.oi-btn.hit b, .oi-btn.stand b { font-family: var(--mincho); font-size: 19px; letter-spacing: .06em; }
+.oi-label {
+  position: absolute; left: 0; top: 0; z-index: 70; display: flex; align-items: center; gap: 6px;
+  padding: 3px 10px 3px 4px; border-radius: 99px; background: #000b; font-size: 12px; color: var(--muted);
+  white-space: nowrap; transition: transform .3s; pointer-events: none;
+}
+.oi-label .role { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: #444; color: #fff; font-size: 11px; font-weight: 700; }
+.oi-label .role.oya { background: var(--red); }
+.oi-label b { font-family: var(--mincho); font-size: 15px; color: var(--paper); }
+.oi-label b.sp { color: var(--gold-2); }
+.oi-label i { font-style: normal; font-weight: 700; color: var(--gold-2); font-size: 14px; }
+.oi-label .ch { font-size: 10.5px; padding: 1px 6px; border-radius: 99px; border: 1px solid #ffffff33; }
+.card.hole .face::before {
+  content: '伏せ札'; position: absolute; z-index: 2; left: 50%; bottom: 6px; transform: translateX(-50%);
+  font-size: 10px; padding: 1px 7px; border-radius: 99px; background: #000c; color: var(--gold-2); white-space: nowrap; top: 6px; bottom: auto;
+}
+.oi-hand { display: flex; gap: 4px; margin: 4px 0; }
+.oi-hand .mc { width: 40px; height: 64px; border-radius: 4px; }
+.hana-side.won .hs-head { color: var(--red); }

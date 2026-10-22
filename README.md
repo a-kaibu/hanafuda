@@ -1,6 +1,6 @@
 # 花札 こいこい
 
-ブラウザで遊べる一人用の花札（こいこい）です。スマホ縦持ちでも PC でも遊べます。
+ブラウザで遊べる一人用の花札です。遊び方は「こいこい」「花合わせ」「おいちょかぶ」から選べ、どれも詳しいルール説明つきです。スマホ縦持ちでも PC でも遊べます。
 
 **▶ 遊ぶ: https://a-kaibu.github.io/hanafuda/**
 
@@ -35,6 +35,7 @@
 ```sh
 python3 -m http.server   # http://localhost:8000 で起動
 npm test                 # ルール・シャッフル・検証・CPU のテスト
+npm run test:e2e         # ブラウザで3つの遊び方を最後まで遊ぶ E2E テスト（初回は npx playwright install chromium）
 node tools/verify.mjs log.json   # 保存した対局記録を検証
 ```
 

@@ -1,7 +1,8 @@
 import { CARDS, KIND_LABEL, MONTHS, ID, monthOf } from './cards.js';
 import { DEFAULT_RULES, YAKU_INFO, TEYAKU_INFO, HANA_YAKU_INFO, HANA_BASE, evaluate, evaluateHana, cardPoints, finalScore } from './yaku.js';
 import { randomHex, commitmentOf } from './rng.js';
-import { isDecision } from './engine.js';
+import { isDecision, isOicho } from './engine.js';
+import { BETS, HAND_NAMES, handRank, handValue } from './oicho.js';
 import { LEVELS, decide } from './cpu.js';
 import * as sfx from './audio.js';
 import {
@@ -24,7 +25,7 @@ const SETTINGS_KEY = 'hanafuda.settings.v1';
 const HISTORY_KEY = 'hanafuda.history.v1';
 const CURRENT_KEY = 'hanafuda.current.v1'; // 対局中の種と行動（リロード後の再開用）
 const settings = Object.assign(
-  { sound: true, volume: 0.7, tags: true, hints: true, speed: 1, level: 2, rounds: 12, game: 'koikoi', rules: { ...DEFAULT_RULES } },
+  { sound: true, volume: 0.7, tags: true, hints: true, speed: 1, level: 2, rounds: 12, oichoRounds: 10, game: 'koikoi', rules: { ...DEFAULT_RULES } },
   safeJSON(localStorage.getItem(SETTINGS_KEY)),
 );
 settings.rules = { ...DEFAULT_RULES, ...settings.rules };
@@ -150,6 +151,7 @@ function rectOf(el) {
 }
 
 function computeLayout(s) {
+  if (isOicho(s.rules)) return computeLayoutOicho(s);
   const pos = new Map();
   const zH = rectOf($('#zHand'));
   const zC = rectOf($('#zCpuHand'));
@@ -228,6 +230,67 @@ function computeLayout(s) {
 
   // 取り札
   [HUMAN, CPU].forEach((p) => layoutCaptured(pos, s.captured[p], capZones[p], cw, p));
+  return pos;
+}
+
+// おいちょかぶ：上に CPU、下に自分の札（最大3枚）、場の左に山札
+function computeLayoutOicho(s) {
+  const pos = new Map();
+  const zH = rectOf($('#zHand'));
+  const zC = rectOf($('#zCpuHand'));
+  const zF = rectOf($('#zField'));
+  const cw = Math.max(40, Math.min((zH.h - 34) / 1.6, zH.w / 4.2, 130));
+  document.documentElement.style.setProperty('--cw', `${cw}px`);
+  const end = s.phase === 'end';
+  for (const el of cardEls.values()) el.classList.remove('hole');
+  const row = (p, z, sc, reserve) => {
+    const w = cw * sc;
+    const gap = w * 0.16;
+    const total = 3 * w + 2 * gap; // 3枚分の場所を先に取り、3枚目が来ても札が動かないようにする
+    const x0 = z.x + Math.max(0, (z.w - reserve - total) / 2);
+    const y = z.y + Math.max(0, (z.h - 30 - w * 1.6) / 2);
+    s.hands[p].forEach((c, i) => {
+      pos.set(c, { x: x0 + i * (w + gap), y, s: sc, z: 300 + i, down: p === CPU && i === 0 && !end, zone: `h${p}` });
+      if (p === HUMAN && i === 0 && !end) cardEls.get(c).classList.add('hole');
+    });
+    return { x: x0 + total / 2, y: y + w * 1.6 + 6 };
+  };
+  const cs = Math.min(0.85, (zC.h - 30) / (cw * 1.6));
+  const me = row(HUMAN, zH, 1, 0);
+  const cpu = row(CPU, zC, cs, Math.min(110, zC.w * 0.26));
+
+  const fs = Math.min(0.8, (zF.h - 34) / 1.6 / cw);
+  const deckX = zF.x + 14;
+  const deckY = zF.y + (zF.h - cw * fs * 1.6) / 2 - 8;
+  s.deck.forEach((c, i) => {
+    const k = Math.min(i, 6);
+    pos.set(c, { x: deckX - k * 0.7, y: deckY - k * 0.9, s: fs, z: 150 - Math.min(i, 40), down: true, zone: 'deck' });
+  });
+  deckBadge.style.transform = `translate(${deckX + (cw * fs) / 2}px, ${deckY + cw * fs * 1.6 + 4}px) translate(-50%, 0)`;
+  deckBadge.textContent = s.deck.length ? `山 ${s.deck.length}` : '';
+
+  const label = (key, at, html) => {
+    let el = groupLabels[key];
+    if (!el) {
+      el = groupLabels[key] = document.createElement('div');
+      el.className = 'oi-label';
+      layer.appendChild(el);
+    }
+    const tf = `translate(${Math.round(at.x)}px, ${Math.round(at.y)}px) translate(-50%, 0)`;
+    if (el.style.transform !== tf) el.style.transform = tf;
+    if (el._html !== html) { el.innerHTML = html; el._html = html; }
+  };
+  const role = (p) => `<span class="role ${p === s.oya ? 'oya' : ''}">${p === s.oya ? '親' : '子'}</span>`;
+  const choice = (p) => (s.choice[p] === 'hit' ? '<span class="ch">引いた</span>' : s.choice[p] === 'stand' && (p === HUMAN || s.phase !== 'turnCheck') ? '<span class="ch">止めた</span>' : '');
+  const name = (h, p) => {
+    const r = handRank(h, p === s.oya);
+    return r.rank > 1 ? `<b class="sp">${r.name}</b>` : `<b>${r.name}</b><i>${r.value}</i>`;
+  };
+  const myH = s.hands[HUMAN];
+  label('oi-me', me, myH.length ? `${role(HUMAN)}${name(myH, HUMAN)}${choice(HUMAN)}` : role(HUMAN));
+  const cpuH = s.hands[CPU];
+  const upSum = handValue(cpuH.slice(1));
+  label('oi-cpu', cpu, end ? `${role(CPU)}${name(cpuH, CPU)}${choice(CPU)}` : `${role(CPU)}${cpuH.length > 1 ? `<small>表の札</small><i>${upSum}</i>` : '<small>伏せ札のみ</small>'}${choice(CPU)}`);
   return pos;
 }
 
@@ -321,6 +384,12 @@ function updateHud(s) {
   $('#roundLabel').textContent = `${s.round}/${log.rules.rounds}局・親 ${s.oya === HUMAN ? 'あなた' : 'CPU'}`;
   setScore('#scoreP', log.totals[HUMAN]);
   setScore('#scoreC', log.totals[CPU]);
+  if (isOicho(s.rules)) {
+    reconcile($('#myYaku'), []);
+    reconcile($('#cpuYaku'), []);
+    reconcile($('#koikoiBadges'), []);
+    return;
+  }
   renderChips('#myYaku', s.captured[HUMAN], s.captured[CPU], s.rules);
   renderChips('#cpuYaku', s.captured[CPU], s.captured[HUMAN], s.rules);
   const badges = [];
@@ -399,6 +468,7 @@ function matchesFor(card, field) {
 
 function updateInteractivity(s) {
   for (const el of cardEls.values()) el.classList.remove('playable', 'match', 'selected', 'dimmed');
+  if (isOicho(s.rules)) return oichoControls(s);
   const myTurn = s.turn === HUMAN && humanWait;
   if (myTurn && s.phase === 'play') {
     for (const c of s.hands[HUMAN]) cardEls.get(c).classList.add('playable');
@@ -420,6 +490,38 @@ function updateInteractivity(s) {
     for (const f of s.field) cardEls.get(f).classList.add(m.includes(f) ? 'match' : 'dimmed');
     for (const f of m) cardEls.get(f).classList.add('playable');
     setHint('山札から引いた札で、どちらを取りますか？');
+  }
+}
+
+// おいちょかぶ：賭け金と、自分の番のボタン
+function oichoControls(s) {
+  const betBox = $('#oiBet');
+  const betHTML = s.bet ? `<span class="lb">賭け金</span><span class="coins">${'<i></i>'.repeat(s.bet)}</span><b>${s.bet}</b>` : '<span class="lb">賭け金はまだ</span>';
+  if (betBox._html !== betHTML) { betBox.innerHTML = betHTML; betBox._html = betHTML; }
+  const box = $('#oiActions');
+  const mine = s.turn === HUMAN && humanWait;
+  const key = mine ? s.phase : '';
+  if (box.dataset.k !== key) {
+    box.dataset.k = key;
+    box.innerHTML = key === 'bet'
+      ? BETS.map((b) => `<button class="oi-btn bet" data-bet="${b}"><b>${b}</b></button>`).join('')
+      : key === 'hit'
+        ? '<button class="oi-btn hit" data-act="hit"><b>もう1枚</b></button><button class="oi-btn stand" data-act="stand"><b>勝負</b></button>'
+        : '';
+    box.querySelectorAll('button').forEach((b) => {
+      b.onclick = (e) => {
+        e.stopPropagation();
+        sfx.unlock();
+        sfx.play('tap');
+        resolveHuman(b.dataset.bet ? { type: 'bet', amount: Number(b.dataset.bet) } : { type: b.dataset.act });
+      };
+    });
+  }
+  if (!mine) return;
+  if (s.phase === 'bet') setHint('自分の伏せ札を見て、賭け金を選んでください');
+  else if (s.phase === 'hit') {
+    const v = handValue(s.hands[HUMAN]);
+    setHint(`いまは ${HAND_NAMES[v]}（${v}）。もう1枚引きますか？`);
   }
 }
 
@@ -486,6 +588,12 @@ table.addEventListener('click', () => {
 document.addEventListener('keydown', (e) => {
   if (!match || !humanWait || $('.overlay.show')) return;
   const s = match.state;
+  if (isOicho(s.rules) && s.turn === HUMAN) {
+    if (s.phase === 'bet' && BETS.includes(Number(e.key))) resolveHuman({ type: 'bet', amount: Number(e.key) });
+    else if (s.phase === 'hit' && (e.key === 'h' || e.key === 'Enter')) resolveHuman({ type: 'hit' });
+    else if (s.phase === 'hit' && (e.key === 's' || e.key === ' ')) { e.preventDefault(); resolveHuman({ type: 'stand' }); }
+    return;
+  }
   if (s.phase === 'play' && s.turn === HUMAN) {
     const hand = [...s.hands[HUMAN]].sort((a, b) => a - b);
     const n = e.key === '0' ? 10 : Number(e.key);
@@ -524,6 +632,7 @@ function toast(t) {
 }
 
 async function dealAnimation() {
+  if (isOicho(match.state.rules)) return dealOicho();
   const s = match.state;
   slots = [];
   lastZone = new Map();
@@ -561,6 +670,26 @@ async function dealAnimation() {
   await sleep(450);
 }
 
+async function dealOicho() {
+  const s = match.state;
+  lastZone = new Map();
+  const ko = 1 - s.oya;
+  const all = { ...s, deck: [...s.hands[ko], ...s.hands[s.oya], ...s.deck], hands: [[], []], choice: [null, null] };
+  applyLayout(all, { instant: true });
+  void layer.offsetWidth;
+  await sleep(200);
+  const t = { ...all, hands: [[], []] };
+  for (const p of [ko, s.oya]) {
+    t.hands = t.hands.map((h, i) => (i === p ? [...s.hands[p]] : h));
+    t.deck = t.deck.filter((c) => !s.hands[p].includes(c));
+    applyLayout(t);
+    sfx.play('deal');
+    await sleep(280);
+  }
+  render();
+  await sleep(350);
+}
+
 // ---------------- ゲーム進行 ----------------
 async function gameLoop(myGen, { resume = false } = {}) {
   const alive = () => myGen === gen;
@@ -587,7 +716,8 @@ async function gameLoop(myGen, { resume = false } = {}) {
     if (isDecision(s)) {
       let action;
       if (s.turn === HUMAN) {
-        if (s.phase === 'decide') action = await humanDecide(s);
+        if (isOicho(s.rules)) action = await waitHuman();
+        else if (s.phase === 'decide') action = await humanDecide(s);
         else {
           if (s.phase === 'play') { sfx.play('turn'); }
           action = await waitHuman();
@@ -623,6 +753,23 @@ async function cpuTurn(s) {
 
 async function afterAction(before, action) {
   const s = match.state;
+  if (isOicho(s.rules)) {
+    const cpu = before.turn === CPU;
+    render();
+    if (action.type === 'bet') {
+      sfx.play('slap');
+      if (cpu) toast(`CPU は ${action.amount} 賭けました`);
+      await sleep(cpu ? 700 : 350);
+    } else if (action.type === 'hit') {
+      if (cpu) toast('CPU はもう1枚引きます');
+      await sleep(cpu ? 450 : 150);
+    } else {
+      sfx.play('tap');
+      if (cpu) toast('CPU はこのまま勝負します');
+      await sleep(cpu ? 650 : 250);
+    }
+    return;
+  }
   if (action.type === 'play') {
     render();
     await sleep(380);
@@ -645,7 +792,46 @@ async function afterAction(before, action) {
   void s;
 }
 
+async function afterStepOicho(before, s) {
+  render();
+  switch (before.phase) {
+    case 'deal2':
+      sfx.play('deal');
+      await sleep(650);
+      break;
+    case 'turnCheck': {
+      const p = before.turn;
+      if (!s.auto[p]) break;
+      const hit = s.choice[p] === 'hit';
+      if (p === HUMAN) {
+        const h = before.hands[HUMAN];
+        const r = handRank(h, before.oya === HUMAN);
+        setHint(r.rank > 1 ? `${r.name}！ このまま勝負です` : `${r.name}（${r.value}）なので${hit ? '必ずもう1枚引きます' : 'このまま勝負です'}`);
+      } else {
+        setHint(hit ? 'CPU はもう1枚引きます' : 'CPU はこのまま勝負します', true);
+      }
+      await sleep(900);
+      break;
+    }
+    case 'draw3':
+      sfx.play('flip');
+      await sleep(650);
+      break;
+    case 'showdown': {
+      sfx.play('flip');
+      await sleep(800);
+      const r = s.result;
+      const w = r.oicho.ranks[r.winner];
+      if (w.rank > 1) sfx.play('yaku');
+      await banner(w.name, `${r.winner === HUMAN ? 'あなた' : 'CPU'}の勝ち`, w.rank > 1 ? 'yaku' : r.winner === HUMAN ? 'stop' : 'koikoi');
+      break;
+    }
+    default:
+  }
+}
+
 async function afterStep(before, s) {
+  if (isOicho(s.rules)) return afterStepOicho(before, s);
   switch (before.phase) {
     case 'playCapture':
     case 'drawCapture': {
@@ -726,9 +912,10 @@ function boardHTML(log, current) {
     .map((r) => {
       const w = r.result?.winner;
       const pts = r.result?.points?.[HUMAN];
-      const t = !r.result ? '…' : log.rules.mode === 'hanaawase' ? `${pts > 0 ? '+' : pts < 0 ? '−' : '±'}${Math.abs(pts)}`
+      const t = !r.result ? '…' : log.rules.mode === 'hanaawase' || log.rules.mode === 'oicho' ? `${pts > 0 ? '+' : pts < 0 ? '−' : '±'}${Math.abs(pts)}`
         : w == null ? '流れ' : `${w === HUMAN ? '+' : '−'}${r.result.score}`;
-      return `<div class="rb ${w === HUMAN ? 'you' : ''} ${r.round === current ? 'now' : ''}">${MONTHS[((r.round - 1) % 12) + 1].name}<b>${t}</b></div>`;
+      const nm = log.rules.mode === 'oicho' ? `${r.round}局` : MONTHS[((r.round - 1) % 12) + 1].name;
+      return `<div class="rb ${w === HUMAN ? 'you' : ''} ${r.round === current ? 'now' : ''}">${nm}<b>${t}</b></div>`;
     })
     .join('');
 }
@@ -737,7 +924,25 @@ function roundEnd() {
   const s = match.state;
   const r = s.result;
   const head = $('#roundHead');
-  if (s.rules.mode === 'hanaawase') {
+  if (isOicho(s.rules)) {
+    const o = r.oicho;
+    const me = r.points[HUMAN];
+    head.textContent = me > 0 ? 'あなたの勝ち' : 'CPU の勝ち';
+    head.className = `result-head ${me > 0 ? 'win' : 'lose'}`;
+    const side = (p, nm) => {
+      const k = o.ranks[p];
+      return `<div class="hana-side ${p === r.winner ? 'won' : ''}"><div class="hs-head">${nm}（${p === s.oya ? '親' : '子'}）</div>
+        <div class="oi-hand">${o.hands[p].map(miniCard).join('')}</div>
+        <div class="hs-row"><span>${k.name}</span><b>${k.rank > 1 ? `×${k.mult}` : k.value}</b></div></div>`;
+    };
+    $('#roundYaku').innerHTML = side(HUMAN, 'あなた') + side(CPU, 'CPU');
+    $('#roundCards').innerHTML = '';
+    const a = o.ranks[1 - s.oya];
+    const b = o.ranks[s.oya];
+    const tie = a.rank === b.rank && (a.rank > 1 || a.value === b.value);
+    $('#roundTotal').innerHTML = `<b>${me > 0 ? '+' : '−'}${Math.abs(me)}</b> 点<span class="mult">賭け金 ${o.bet}${r.mult.length ? ` × ${r.mult.join('')}` : ''}${tie ? '・同じ強さは親の勝ち' : ''}</span>`;
+    sfx.play(me > 0 ? 'win' : 'lose');
+  } else if (s.rules.mode === 'hanaawase') {
     const h = r.hana;
     const me = h.points[HUMAN];
     head.textContent = me > 0 ? 'あなたの勝ち' : me < 0 ? 'CPU の勝ち' : '引き分け';
@@ -861,6 +1066,7 @@ function resumeGame() {
   match = m;
   resumeCache = undefined;
   $('#cpuLevelLabel').textContent = LEVELS.find((l) => l.id === match.log.cpuLevel).name;
+  setMode(match.log.rules.mode);
   makeCards();
   setScore('#scoreP', match.log.totals[HUMAN]);
   setScore('#scoreC', match.log.totals[CPU]);
@@ -882,10 +1088,11 @@ function startMatch() {
     dealerSeed: prepared.dealerSeed,
     cpuSeed: prepared.cpuSeed,
     playerSeed,
-    rules: { ...settings.rules, rounds: settings.rounds, mode: settings.game },
+    rules: { ...settings.rules, rounds: settings.game === 'oicho' ? settings.oichoRounds : settings.rounds, mode: settings.game },
     cpuLevel: settings.level,
   });
   $('#cpuLevelLabel').textContent = LEVELS.find((l) => l.id === settings.level).name;
+  setMode(settings.game);
   setScore('#scoreP', 0);
   setScore('#scoreC', 0);
   makeCards();
@@ -894,6 +1101,15 @@ function startMatch() {
   saveCurrent();
   toast(`第1局は${match.log.firstOya === HUMAN ? 'あなた' : 'CPU'}が親です`);
   gameLoop(gen);
+}
+
+// 遊び方ごとに卓の配置と名前を切り替える
+function setMode(mode = 'koikoi') {
+  document.body.classList.toggle('mode-oicho', mode === 'oicho');
+  $('.brand .name').textContent = GAMES.find((g) => g.id === mode)?.name || 'こいこい';
+  const box = $('#oiActions');
+  box.innerHTML = '';
+  box.dataset.k = '';
 }
 
 function quitToTitle() {
@@ -941,12 +1157,20 @@ function buildTitle() {
   const onGame = () => {
     $('#gameDesc').textContent = GAMES.find((g) => g.id === settings.game).desc;
     $('#ruleSettings').hidden = settings.game !== 'koikoi';
+    $('#ovTitle h1 small').textContent = GAMES.find((g) => g.id === settings.game).name;
+    const oi = settings.game === 'oicho';
+    const opts = oi ? [[5, '5局'], [10, '10局'], [20, '20局']] : [[3, '3局'], [6, '6局'], [12, '12局（一年）']];
+    $('#roundSeg').innerHTML = opts.map(([v, l]) => `<button data-v="${v}">${l}</button>`).join('');
+    segment('#roundSeg', oi ? settings.oichoRounds : settings.rounds, (v) => {
+      if (settings.game === 'oicho') settings.oichoRounds = Number(v);
+      else settings.rounds = Number(v);
+      saveSettings();
+    });
   };
   if (!GAMES.some((g) => g.id === settings.game)) settings.game = 'koikoi';
   segment('#gameSeg', settings.game, (v) => { settings.game = v; saveSettings(); onGame(); });
   onGame();
   segment('#levelSeg', settings.level, (v) => { settings.level = Number(v); saveSettings(); });
-  segment('#roundSeg', settings.rounds, (v) => { settings.rounds = Number(v); saveSettings(); });
   const T = [
     ['sakeYaku', '花見で一杯・月見で一杯を役にする'],
     ['sakeAsPlain', '菊に盃をカスとしても数える'],
@@ -980,6 +1204,7 @@ const CREDIT_HTML = `<p class="note">札の絵：<a href="https://commons.wikime
 const GAMES = [
   { id: 'koikoi', name: 'こいこい', desc: '役を作って「あがる」か「こいこい」で続けるかを選ぶ、いちばん有名な遊び方。' },
   { id: 'hanaawase', name: '花合わせ', desc: 'こいこいせずに手札を出し切り、取った札の点数と出来役で勝負する昔ながらの遊び方。' },
+  { id: 'oicho', name: 'おいちょかぶ', desc: '2〜3枚の札の合計の一の位で、9（カブ）に近い方が勝ち。賭け金を決めて親と勝負する。' },
 ];
 let ruleGame = 'koikoi';
 let ruleTabNow = 'how';
@@ -991,7 +1216,7 @@ function ruleTab(tab = ruleTabNow) {
   const body = $('#ruleBody');
   const R = match && match.log.rules.mode === ruleGame ? match.log.rules : { ...settings.rules, mode: ruleGame };
   if (ruleGame === 'hanaawase' && (tab === 'how' || tab === 'yaku')) return hanaRules(tab, body);
-  if (ruleGame === 'oicho' && (tab === 'how' || tab === 'yaku')) return oichoRules(tab, body);
+  if (ruleGame === 'oicho' && tab !== 'fair') return oichoRules(tab, body);
   koikoiRules(tab, body, R);
 }
 
@@ -1039,8 +1264,74 @@ function hanaRules(tab, body) {
   }
 }
 
+// 1〜10月の代表札（カス札）
+const OI_SAMPLE = [2, 6, 10, 14, 18, 22, 26, 30, 34, 38];
+const oiEx = (...months) => months.map((m) => miniCard(OI_SAMPLE[m - 1])).join('');
+
 function oichoRules(tab, body) {
-  body.innerHTML = '';
+  if (tab === 'how') {
+    body.innerHTML = `
+      <p class="note">おいちょかぶは地方や家によってルールがかなり違います。ここではこのアプリの「CPU と1対1」のルールを説明します。</p>
+      <h3>目的</h3>
+      <p>2枚か3枚の札の数を足して、<b>一の位が 9 に近い方が勝ち</b>です。札を取り合うのではなく、配られた札で一発勝負します。</p>
+      <h3>使う札と数</h3>
+      <p>1月〜10月の40枚だけを使います（11月・12月は抜きます）。札の数は<b>月の数</b>で、<b>10月だけは 0</b> です。光・タネ・短冊などの種類は関係ありません。</p>
+      <table>${OI_SAMPLE.map((c, i) => `<tr><td class="nm">${MONTHS[i + 1].label}（${MONTHS[i + 1].name}）</td><td>${[0, 1, 2, 3].map((k) => miniCard(i * 4 + k)).join('')}</td><td class="pt">${(i + 1) % 10}</td></tr>`).join('')}</table>
+      <h3>手の数え方</h3>
+      <p>札の数を全部足して、<b>一の位だけ</b>を見ます。</p>
+      <table>
+        <tr><td>${oiEx(8, 7)}</td><td>8 + 7 = 15 → <b>5</b>（ゴケ）</td></tr>
+        <tr><td>${oiEx(4, 5)}</td><td>4 + 5 = 9 → <b>9</b>（カブ・いちばん強い）</td></tr>
+        <tr><td>${oiEx(10, 10)}</td><td>0 + 0 = 0 → <b>0</b>（ブタ・いちばん弱い）</td></tr>
+        <tr><td>${oiEx(6, 9, 5)}</td><td>6 + 9 + 5 = 20 → <b>0</b>（3枚目で台無しになることもある）</td></tr>
+      </table>
+      <h3>1局の流れ</h3>
+      <ol>
+        <li><b>親と子</b>：あなたと CPU が1局ごとに交代で親になります（最初の親はくじ引き）。</li>
+        <li><b>1枚目を伏せて配る</b>：子と親に1枚ずつ。自分の伏せ札は自分だけが見られます。相手のは見えません。</li>
+        <li><b>子が賭け金を決める</b>：1・2・3・5 のどれか。自分の伏せ札だけを見て決めます。勝てばその分もらい、負ければその分払います。</li>
+        <li><b>2枚目を表向きに配る</b>：2枚目からはお互いに見えます。</li>
+        <li><b>子が3枚目を引くか決める</b>（下のきまりを参照）。</li>
+        <li><b>親が3枚目を引くか決める</b>：親は、子が引いたかどうかと子の表の札を見てから決められます。</li>
+        <li><b>勝負</b>：伏せ札を開けて比べます。</li>
+      </ol>
+      <h3>3枚目のきまり</h3>
+      <ul>
+        <li>2枚の合計が <b>3 以下</b>なら、必ずもう1枚引きます。</li>
+        <li><b>7 以上</b>なら引けません（そのまま勝負）。</li>
+        <li><b>4・5・6</b> のときだけ、引くか止めるかを自分で選べます。</li>
+        <li>3枚目は表向きです。引けるのは1枚だけ（最大3枚）です。</li>
+      </ul>
+      <h3>勝ち負けと点</h3>
+      <ul>
+        <li>数の大きい方が勝ち。<b>同じ数なら親の勝ち</b>です（親が少し有利）。</li>
+        <li>子が勝てば子が賭け金をもらい、親が勝てば親が賭け金をもらいます。</li>
+        <li>特別な役（「役と点数」タブ）で勝つと、賭け金が2倍・3倍になります。</li>
+        <li>決めた局数が終わった時点で、合計点の多い方の勝ちです。</li>
+      </ul>
+      <h3>コツ</h3>
+      <ul>
+        <li>子は同じ数だと負けるので少し不利です。伏せ札を見て、いけそうなときだけ多めに賭けましょう。</li>
+        <li>4 なら引く、6 なら止める、が目安です。5 は相手の表の札と相談です。</li>
+        <li>親は、子が「止めた」ならだいたい 6 以上、「引いた」なら 2枚の時点で小さかった、と読めます。</li>
+      </ul>
+      <h3>操作</h3>
+      <p class="note">賭け金は丸いボタン、3枚目は「もう1枚」か「勝負」を押します。PC ではキー 1・2・3・5 で賭け、H（Enter）で引く、S（スペース）で止めることもできます。</p>`;
+  } else if (tab === 'yaku') {
+    body.innerHTML = `
+      <h3>数の呼び名</h3>
+      <table>${HAND_NAMES.map((n, v) => `<tr><td class="nm">${n}</td><td class="small">${['いちばん弱い', '', '', '', '', '', '', '', '', 'いちばん強い'][v]}</td><td class="pt">${v}</td></tr>`).reverse().join('')}</table>
+      <h3>特別な役</h3>
+      <table>
+        <tr><td class="nm">アラシ</td><td>${oiEx(3, 3, 3)}<div class="small">3枚とも同じ月。親でも子でもできます。いちばん強い役。</div></td><td class="pt">×3</td></tr>
+        <tr><td class="nm">シッピン</td><td>${oiEx(4, 1)}<div class="small">子だけの役。最初の2枚が 4月と1月。そこで自動的に止めます。</div></td><td class="pt">×2</td></tr>
+        <tr><td class="nm">クッピン</td><td>${oiEx(9, 1)}<div class="small">親だけの役。最初の2枚が 9月と1月。そこで自動的に止めます。</div></td><td class="pt">×2</td></tr>
+      </table>
+      <p class="note">強さの順は アラシ ＞ シッピン・クッピン ＞ 数（カブ〜ブタ）。同じ強さなら親の勝ちです。役で勝つと、賭け金にその倍率をかけた点が動きます。</p>`;
+  } else {
+    body.innerHTML = `<p>使うのは1月〜10月の40枚です。札の数は月の数（10月は 0）。種類（光・タネなど）は関係ありません。</p>
+      <div class="month-grid">${OI_SAMPLE.map((c, i) => `<div class="month"><h4>${MONTHS[i + 1].label}・${MONTHS[i + 1].name}　<b>${(i + 1) % 10}</b></h4><div class="row">${[0, 1, 2, 3].map((k) => `<figure>${miniCard(i * 4 + k)}</figure>`).join('')}</div></div>`).join('')}</div>${CREDIT_HTML}`;
+  }
 }
 
 function koikoiRules(tab, body, R) {
@@ -1160,6 +1451,8 @@ let verifyViewToken = 0;
 
 function verifyReport(log, v) {
   let h = '';
+  const oiLog = log.rules?.mode === 'oicho';
+  const H = log.rules?.mode === 'hanaawase' ? 10 : 8;
   if (!log.dealerSeed) {
     h += `<div class="verdict wait">⏳ まだ種が公開されていない記録です</div>`;
   } else {
@@ -1175,10 +1468,11 @@ function verifyReport(log, v) {
       <div class="kv"><span>あなたの種</span><code>${escapeHTML(log.playerSeed)}</code></div>
       <div class="btn-row"><button class="secondary" id="btnDownload">記録を保存</button><button class="secondary" id="btnCopyLog">記録をコピー</button></div>
       <h3 style="font-family:var(--mincho)">各局の山札（再計算）</h3>
-      <p class="small">左から：親の手札8枚 ｜ 場8枚 ｜ 子の手札8枚 ｜ 山札24枚（左が上）</p>
+      <p class="small">${oiLog ? '左から：子の伏せ札・親の伏せ札 ｜ 子の2枚目・親の2枚目 ｜ 3枚目以降に引く札（左が上）。11月・12月の札は使いません' : `左から：親の手札${H}枚 ｜ 場8枚 ｜ 子の手札${H}枚 ｜ 山札${48 - 2 * H - 8}枚（左が上）`}</p>
       <div class="deck-rows">${v.rounds
         .map((r) => {
-          const parts = [r.deck.slice(0, 8), r.deck.slice(8, 16), r.deck.slice(16, 24), r.deck.slice(24)];
+          const parts = oiLog ? [r.deck.slice(0, 2), r.deck.slice(2, 4), r.deck.slice(4, 6)]
+            : [r.deck.slice(0, H), r.deck.slice(H, H + 8), r.deck.slice(H + 8, 2 * H + 8), r.deck.slice(2 * H + 8)];
           return `<div class="deck-row"><div class="hd">第${r.round}局${r.attempt ? `（配り直し${r.attempt}回）` : ''}</div><div class="strip">${parts.map((p) => p.map(miniCard).join('')).join('<span class="sep"></span>')}</div></div>`;
         })
         .join('')}</div>`;

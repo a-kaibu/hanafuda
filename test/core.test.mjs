@@ -6,7 +6,8 @@ import { shuffledDeck, deckKeyOf, randomHex } from '../js/rng.js';
 import { evaluate, evaluateHana, DEFAULT_RULES, teyakuOf, finalScore } from '../js/yaku.js';
 import { createMatch, act, stepAll, snapshot, resumeMatch, cpuView, startRound, isMatchOver, reveal, verifyLog, HUMAN, CPU } from '../js/match.js';
 import { decide } from '../js/cpu.js';
-import { legalActions, runAuto } from '../js/engine.js';
+import { legalActions, runAuto, viewFor } from '../js/engine.js';
+import { handRank, handValue, newRound as oichoRound } from '../js/oicho.js';
 import { CARDS } from '../js/cards.js';
 
 test('sha256 matches node crypto', () => {
@@ -59,9 +60,8 @@ function playMatch(levels, rounds = 12, mode = 'koikoi') {
       const s = m.state;
       if (s.turn === CPU) act(m, CPU, decide(cpuView(m), levels[1], m.cpuKey));
       else {
-        const v = { ...cpuView(m) };
-        // 人間側も CPU ロジック（自分視点）で打つ
-        const hv = { ...v, me: HUMAN, hand: [...s.hands[HUMAN]], oppHandCount: s.hands[CPU].length };
+        // 人間側も CPU ロジック（自分視点の公開情報）で打つ
+        const hv = viewFor(s, HUMAN, { matchScores: [...m.log.totals], roundsTotal: rounds });
         act(m, HUMAN, decide(hv, levels[0], humanKey));
       }
     }
@@ -147,4 +147,41 @@ test('hana yaku', () => {
   assert.equal(evaluateHana([0, 8, 40]).total, 20);
   assert.equal(evaluateHana([1, 5, 9, 13, 17, 25]).total, 40 + 20 + 30);
   assert.equal(evaluateHana([8, 28, 32]).total, 20 + 20 + 0);
+});
+
+test('oicho: 40 cards, alternating oya, zero-sum, verifies', () => {
+  for (const lv of [1, 2, 3, 4]) {
+    const log = JSON.parse(JSON.stringify(playMatch([2, lv], 10, 'oicho')));
+    log.rounds.forEach((r, i) => {
+      assert.equal(r.oya, i === 0 ? log.firstOya : 1 - log.rounds[i - 1].oya);
+      assert.equal(r.result.points[0] + r.result.points[1], 0);
+      for (const h of r.result.oicho.hands) {
+        assert.ok(h.length >= 2 && h.length <= 3);
+        assert.ok(h.every((c) => c < 40));
+      }
+      assert.ok([1, 2, 3, 5].includes(r.result.oicho.bet));
+    });
+    const v = verifyLog(log);
+    assert.ok(v.pass, JSON.stringify(v.checks.filter((c) => !c.pass)));
+    log.rounds[0].result.points = log.rounds[0].result.points.map((x) => -x);
+    assert.equal(verifyLog(log).pass, false);
+  }
+});
+
+test('oicho hands', () => {
+  // 札の数は月の数（10月は0）。id = (月-1)*4 + k
+  const m = (...months) => months.map((x) => (x - 1) * 4);
+  assert.equal(handValue(m(8, 7)), 5);
+  assert.equal(handValue(m(4, 5)), 9);
+  assert.equal(handValue(m(10, 10)), 0);
+  assert.equal(handRank(m(4, 1), false).name, 'シッピン');
+  assert.equal(handRank(m(4, 1), true).name, 'ゴケ');
+  assert.equal(handRank(m(9, 1), true).name, 'クッピン');
+  assert.equal(handRank([8, 9, 10], false).name, 'アラシ');
+  const s = oichoRound(deckKeyOf('a', 'b'), 1, 0, { mode: 'oicho' });
+  assert.equal(s.deck.length + 2, 40);
+  // 相手の伏せ札は見えない
+  const v = viewFor(s, HUMAN);
+  assert.deepEqual(v.oppUp, []);
+  assert.equal(JSON.stringify(v).includes(`"hand":[${s.hands[HUMAN][0]}]`), true);
 });
