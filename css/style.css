@@ -434,3 +434,21 @@ textarea.logbox { width: 100%; min-height: 90px; font-family: ui-monospace, Menl
 .game-desc .link { font-size: 12px; }
 .seg.rule-games { margin-bottom: 8px; }
 details.more[hidden] { display: none; }
+
+/* こいこい判断：盤面が見えるよう下部の小さなパネルにする */
+.overlay.peek { align-items: flex-end; background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; pointer-events: none; padding: 0 8px calc(8px + var(--safe-b)); }
+.overlay.peek.show .sheet { pointer-events: auto; }
+.peek .decide-sheet { max-width: 520px; padding: 10px 12px 12px; border-radius: 16px; text-align: left; box-shadow: 0 -6px 30px #000b; }
+.decide-fold { position: absolute; top: -30px; right: 8px; font-size: 12px; padding: 5px 12px; border-radius: 99px; background: #000c; color: var(--paper); border: 1px solid #ffffff33; }
+.decide-line { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.decide-line .decide-head { font-size: 17px; }
+.decide-line .decide-score { margin-left: auto; font-size: 12px; }
+.decide-line .decide-score b { font-size: 22px; }
+.decide-yaku { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 2px; }
+.decide-yaku .chip { font-size: 12px; padding: 4px 8px; }
+.peek .decide-note { margin: 2px 0 8px; font-size: 11px; }
+.peek .choice { padding: 10px 8px; }
+.peek .choice b { font-size: 19px; }
+.overlay.peek.folded .decide-body, .overlay.peek.folded .decide-btns { display: none; }
+.overlay.peek.folded .decide-sheet { background: transparent; box-shadow: none; padding: 0; min-height: 30px; }
+.overlay.peek.folded .decide-fold { top: 0; background: var(--red); }

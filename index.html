@@ -94,15 +94,17 @@
   </div>
 
   <!-- こいこい判断 -->
-  <div class="overlay" id="ovDecide">
+  <div class="overlay peek" id="ovDecide">
     <div class="sheet decide-sheet">
-      <div class="decide-head">役ができました</div>
-      <div class="yaku-list" id="decideYaku"></div>
-      <div class="decide-score" id="decideScore"></div>
-      <div class="decide-note" id="decideNote"></div>
+      <button class="decide-fold" id="btnFold" aria-label="盤面を見る">盤面を見る ▾</button>
+      <div class="decide-body">
+        <div class="decide-line"><span class="decide-head">役ができました</span><span class="decide-score" id="decideScore"></span></div>
+        <div class="decide-yaku" id="decideYaku"></div>
+        <div class="decide-note" id="decideNote"></div>
+      </div>
       <div class="decide-btns">
-        <button class="choice koikoi" id="btnKoikoi"><b>こいこい</b><span>続けてもっと狙う</span></button>
-        <button class="choice stop" id="btnStop"><b>あがり</b><span>ここで勝負</span></button>
+        <button class="choice koikoi" id="btnKoikoi"><b>こいこい</b></button>
+        <button class="choice stop" id="btnStop"><b>あがり</b></button>
       </div>
     </div>
   </div>

@@ -689,13 +689,19 @@ function humanDecide(s) {
   const ev = evaluate(s.captured[HUMAN], s.rules);
   const f = finalScore(ev.total, s.rules, s.koikoi[CPU]);
   const newKeys = new Set((s.newYaku || []).map((y) => y.key));
-  $('#decideYaku').innerHTML = ev.yaku.map((y) => yakuRow(y, newKeys.has(y.key))).join('');
-  $('#decideScore').innerHTML = `今あがると <b>${f.score}</b> 点${f.mult.length ? `<br><small>${f.mult.join('・')}</small>` : ''}`;
+  $('#decideYaku').innerHTML = ev.yaku.map((y) => `<span class="chip done ${newKeys.has(y.key) ? 'new' : ''}">${y.name} ${y.points}</span>`).join('');
+  $('#decideScore').innerHTML = `今あがると <b>${f.score}</b> 点${f.mult.length ? `（${f.mult.join('・')}）` : ''}`;
+  $('#ovDecide').classList.remove('folded');
+  $('#btnFold').onclick = () => {
+    const folded = $('#ovDecide').classList.toggle('folded');
+    $('#btnFold').textContent = folded ? '判断に戻る ▴' : '盤面を見る ▾';
+    sfx.play('tap');
+  };
+  $('#btnFold').textContent = '盤面を見る ▾';
   const left = s.hands[HUMAN].length;
-  const notes = [`手札はあと${left}枚。`];
-  if (s.koikoi[CPU]) notes.push('CPU がこいこい中なので、今あがると倍になります。');
-  notes.push('こいこいすると、相手が先にあがった場合は相手の点が倍になることがあります。');
-  $('#decideNote').textContent = notes.join('');
+  const notes = [`手札あと${left}枚`];
+  if (s.koikoi[CPU]) notes.push('CPU がこいこい中：今あがると倍');
+  $('#decideNote').textContent = notes.join('　');
   showOverlay('#ovDecide');
   return new Promise((resolve) => {
     const done = (type) => {
