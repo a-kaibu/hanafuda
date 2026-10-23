@@ -50,7 +50,7 @@ async function open(settings, viewport = { width: 390, height: 844 }) {
   await page.addInitScript((s) => {
     if (!sessionStorage.getItem('seeded')) {
       localStorage.clear();
-      localStorage.setItem('hanafuda.settings.v1', JSON.stringify({ speed: 0.2, level: 1, sound: false, undo: false, ...s }));
+      localStorage.setItem('hanafuda.settings.v1', JSON.stringify({ speed: 0.2, level: 1, sound: false, ...s }));
       sessionStorage.setItem('seeded', '1');
     }
   }, settings);
@@ -115,11 +115,9 @@ for (const [game, settings] of [
 test('途中でリロードしても同じ局面から再開できる', { timeout: 300000 }, async () => {
   const { page, errors, ctx } = await open({ game: 'koikoi', rounds: 2 });
   await page.click('#btnStart');
-  for (let i = 0; i < 12; i++) { await playStep(page); await page.waitForTimeout(80); }
-  await page.waitForFunction(() => {
-    const s = JSON.parse(localStorage.getItem('hanafuda.current.v1') || 'null');
-    return s && s.rounds.flat().length > 2;
-  }, null, { timeout: 60000 });
+  const played = () => page.evaluate(() => JSON.parse(localStorage.getItem('hanafuda.current.v1') || 'null')?.rounds.flat().length || 0);
+  for (let i = 0; i < 2000 && (await played()) <= 2; i++) { await playStep(page); await page.waitForTimeout(60); }
+  assert.ok((await played()) > 2, '3手以上進まなかった');
   const before = await page.evaluate(() => localStorage.getItem('hanafuda.current.v1'));
   await page.reload();
   await page.waitForTimeout(800);
@@ -155,31 +153,45 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
   });
 }
 
-test('出した札を確定前に取り消せる（山札はめくられない）', { timeout: 120000 }, async () => {
-  const { page, errors, ctx } = await open({ game: 'koikoi', rounds: 2, undo: true });
+test('1手戻すと、自分の手を選ぶ前の局面に戻り、記録に残る', { timeout: 300000 }, async () => {
+  const { page, errors, ctx } = await open({ game: 'koikoi', rounds: 2 });
   await page.click('#btnStart');
-  const actionsCount = () => page.evaluate(() => JSON.parse(localStorage.getItem('hanafuda.current.v1')).rounds.flat().length);
-  const deckBadge = () => page.textContent('.deck-count');
-  // 自分の番まで進める
-  await page.waitForFunction(() => document.querySelectorAll('.card.playable').length > 0, null, { timeout: 60000 });
-  const n0 = await actionsCount();
-  const deck0 = await deckBadge();
-  const card = await page.$$eval('.card.playable', (els) => els.at(-1).dataset.id);
-  await page.click(`.card[data-id="${card}"]`);
-  await page.click(`.card[data-id="${card}"]`);
-  const target = await page.$('.card.match.playable');
-  if (target) await target.click();
-  await page.waitForSelector('#undoBar.show', { timeout: 5000 });
+  const snap = () => page.evaluate(() => JSON.parse(localStorage.getItem('hanafuda.current.v1')));
+  const myTurn = () => page.waitForFunction(() => document.querySelectorAll('.card.playable').length > 0, null, { timeout: 60000 });
+  await myTurn();
+  assert.equal(await page.isDisabled('#btnUndo'), true, 'まだ何も打っていないのに戻せる');
+  let hand0;
+  let n0;
+  // 自分の手のあと CPU があがって局が終わると戻せないので、戻せる状況になるまで繰り返す
+  for (let attempt = 0; ; attempt++) {
+    assert.ok(attempt < 10, '戻せる状況にならなかった');
+    await myTurn();
+    hand0 = await page.$$eval('.card.playable', (els) => els.map((e) => e.dataset.id).sort());
+    n0 = (await snap()).rounds.flat().length;
+    // 1手打つ（待ち時間なしで確定する）
+    const card = hand0.at(-1);
+    await page.click(`.card[data-id="${card}"]`);
+    await page.click(`.card[data-id="${card}"]`);
+    const target = await page.$('.card.match.playable');
+    if (target) await target.click();
+    await page.waitForFunction((n) => JSON.parse(localStorage.getItem('hanafuda.current.v1'))?.rounds.flat().length !== n, n0, { timeout: 5000 });
+    // 次に自分が選ぶ場面（または局の終わり）まで待つ
+    await page.waitForFunction(() => !document.querySelector('#btnUndo').disabled || document.querySelector('#ovRound.show'), null, { timeout: 60000 });
+    if (!(await page.$('#ovRound.show'))) break;
+    await page.click('#btnNext');
+  }
   await page.click('#btnUndo');
-  await page.waitForFunction((c) => document.querySelector(`.card[data-id="${c}"]`).classList.contains('playable'), card, { timeout: 5000 });
-  assert.equal(await actionsCount(), n0, '取り消した手が記録に残っている');
-  assert.equal(await deckBadge(), deck0, '取り消したのに山札がめくられた');
-  // 今度は取り消さずに待つと確定する
-  await page.click(`.card[data-id="${card}"]`);
-  await page.click(`.card[data-id="${card}"]`);
-  const t2 = await page.$('.card.match.playable');
-  if (t2) await t2.click();
-  await page.waitForFunction((n) => JSON.parse(localStorage.getItem('hanafuda.current.v1')).rounds.flat().length > n, n0, { timeout: 10000 });
+  await page.waitForFunction((n) => {
+    const s = JSON.parse(localStorage.getItem('hanafuda.current.v1'));
+    return s.rounds.flat().length === n && s.undos.length === 1;
+  }, n0, { timeout: 5000 });
+  await myTurn();
+  const hand1 = await page.$$eval('.card.playable', (els) => els.map((e) => e.dataset.id).sort());
+  assert.deepEqual(hand1, hand0, '手札が元に戻っていない');
+  // そのまま最後まで遊ぶと、検証は ✓ で巻き戻し回数が表示される
+  assert.ok(await playUntil(page, 'match'));
+  await expectVerified(page);
+  assert.match(await page.textContent('#matchUndo'), /巻き戻し 1回/);
   assert.deepEqual(errors, []);
   await ctx.close();
 });

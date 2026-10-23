@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { sha256, utf8, toHex } from '../js/sha256.js';
 import { shuffledDeck, deckKeyOf, randomHex } from '../js/rng.js';
 import { evaluate, evaluateHana, DEFAULT_RULES, teyakuOf, finalScore } from '../js/yaku.js';
-import { createMatch, act, stepAll, snapshot, resumeMatch, cpuView, startRound, isMatchOver, reveal, verifyLog, HUMAN, CPU } from '../js/match.js';
+import { createMatch, act, stepAll, snapshot, resumeMatch, cpuView, startRound, isMatchOver, reveal, verifyLog, canUndo, undo, HUMAN, CPU } from '../js/match.js';
 import { decide } from '../js/cpu.js';
 import { legalActions, runAuto, viewFor } from '../js/engine.js';
 import { handRank, handValue, newRound as oichoRound } from '../js/oicho.js';
@@ -184,4 +184,38 @@ test('oicho hands', () => {
   const v = viewFor(s, HUMAN);
   assert.deepEqual(v.oppUp, []);
   assert.equal(JSON.stringify(v).includes(`"hand":[${s.hands[HUMAN][0]}]`), true);
+});
+
+test('undo rewinds to before your last move and is recorded', () => {
+  for (const mode of ['koikoi', 'hanaawase', 'oicho']) {
+    const m = createMatch({ dealerSeed: randomHex(), cpuSeed: randomHex(), playerSeed: 'u', rules: { ...DEFAULT_RULES, rounds: 2, mode }, cpuLevel: 2 });
+    const humanKey = 'e'.repeat(64);
+    const play = () => {
+      stepAll(m);
+      const s = m.state;
+      if (s.phase === 'end') return false;
+      if (s.turn === CPU) act(m, CPU, decide(cpuView(m), 2, m.cpuKey));
+      else act(m, HUMAN, decide(viewFor(s, HUMAN), 2, humanKey));
+      return true;
+    };
+    // 自分の番まで進めて、その局面を覚えておく
+    while (play() && !(stepAll(m).turn === HUMAN && m.state.phase !== 'end'));
+    if (m.state.phase === 'end') continue;
+    const before = JSON.stringify(m.state);
+    const n = m.log.rounds.at(-1).actions.length;
+    play(); // 自分の手
+    if (m.state.phase !== 'end') play(); // CPU の手
+    if (m.state.phase === 'end') continue;
+    assert.ok(canUndo(m));
+    undo(m);
+    assert.equal(JSON.stringify(m.state), before);
+    assert.equal(m.log.rounds.at(-1).actions.length, n);
+    assert.equal(m.log.undos.length, 1);
+    // 再開しても巻き戻しの記録は残る
+    assert.equal(resumeMatch(snapshot(m)).log.undos.length, 1);
+    while (play() || (!isMatchOver(m) && startRound(m)));
+    const v = verifyLog(JSON.parse(JSON.stringify(reveal(m))));
+    assert.ok(v.pass, JSON.stringify(v.checks.filter((c) => !c.pass)));
+    assert.ok(v.checks.some((c) => c.name === '巻き戻し' && /1回/.test(c.detail)));
+  }
 });

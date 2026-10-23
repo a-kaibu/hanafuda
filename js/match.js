@@ -26,6 +26,7 @@ export function createMatch({ dealerSeed, cpuSeed, playerSeed, rules, cpuLevel }
       finished: false,
       dealerSeed: null,
       cpuSeed: null,
+      undos: [], // 巻き戻しの記録（取り消した手も残す）
     },
     state: null,
   };
@@ -74,6 +75,28 @@ function finishRound(m) {
   const r = m.log.rounds.at(-1);
   r.result = m.state.result;
   r.result.points.forEach((v, p) => { m.log.totals[p] += v; });
+}
+
+// ---- 巻き戻し ----
+// 今の局で、あなたの最後の手（とそのあとの CPU の手）を取り消して、その手を選ぶ前の局面に戻す。
+// 山札は種で固定なので、戻してもめくる札は変わらない。めくった札を見てから打ち直せてしまうので、
+// 取り消した手はすべて log.undos に残し、検証画面に回数を表示する。
+export function canUndo(m) {
+  const r = m.log.rounds.at(-1);
+  return !!r && m.state.phase !== 'end' && r.actions.some((a) => a.p === HUMAN);
+}
+
+export function undo(m) {
+  if (!canUndo(m)) return false;
+  const r = m.log.rounds.at(-1);
+  const i = r.actions.findLastIndex((a) => a.p === HUMAN);
+  const removed = r.actions.slice(i);
+  r.actions = r.actions.slice(0, i);
+  let s = runAuto(newRound(m.deckKey, r.round, r.oya, m.log.rules));
+  for (const { p, ...action } of r.actions) s = runAuto(apply(s, action));
+  m.state = s;
+  (m.log.undos ||= []).push({ round: r.round, at: i, removed });
+  return true;
 }
 
 export const isMatchOver = (m) =>
@@ -158,6 +181,12 @@ export function verifyLog(log, { checkCpu = true } = {}) {
   ok('合計点', JSON.stringify(totals) === JSON.stringify(log.totals), `あなた ${totals[0]} / CPU ${totals[1]}`);
   if (checkCpu)
     ok('CPU は公開情報だけで判断', cpuMismatch === 0, `${cpuChecked}手を再計算、不一致 ${cpuMismatch}`);
+  const undos = log.undos || [];
+  if (undos.length) {
+    // 巻き戻しは不正ではないが、めくった札を見てから打ち直せるので回数を明示する
+    const legalUndo = undos.every((u) => u.removed.length && u.removed[0].p === HUMAN);
+    ok('巻き戻し', legalUndo, `${undos.length}回（あなたが取り消した手。山札の札を見てから打ち直せるため記録しています）`);
+  }
   return { pass: checks.every((c) => c.pass), checks, rounds };
 }
 
@@ -174,12 +203,14 @@ export function snapshot(m) {
     params: { dealerSeed, cpuSeed, playerSeed: l.playerSeed, rules: l.rules, cpuLevel: l.cpuLevel },
     startedAt: l.startedAt,
     rounds: l.rounds.map((r) => r.actions),
+    undos: l.undos || [],
   };
 }
 
 export function resumeMatch(snap) {
   const m = createMatch(snap.params);
   m.log.startedAt = snap.startedAt;
+  m.log.undos = snap.undos || [];
   snap.rounds.forEach((actions, i) => {
     if (i > 0) startRound(m);
     for (const { p, ...action } of actions) {
