@@ -169,6 +169,7 @@
         <label class="range"><span>音量</span><input type="range" id="optVolume" min="0" max="1" step="0.05"></label>
         <label class="toggle"><input type="checkbox" id="optTags"><span>札に月と種類を表示</span></label>
         <label class="toggle"><input type="checkbox" id="optHints"><span>役のあと何枚かを表示</span></label>
+        <label class="toggle"><input type="checkbox" id="optUndo"><span>出した直後に取り消せる（少し待ってから確定）</span></label>
       </div>
       <div class="field-group">
         <div class="label">アニメーション速度</div>
@@ -178,6 +179,7 @@
     </div>
   </div>
 
+  <div id="undoBar" aria-live="polite"><span class="t"></span><button id="btnUndo">取り消す</button><i class="fill"></i></div>
   <div id="toast"></div>
   <script type="module" src="js/ui.js"></script>
 </body>

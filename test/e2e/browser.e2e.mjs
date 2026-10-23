@@ -50,7 +50,7 @@ async function open(settings, viewport = { width: 390, height: 844 }) {
   await page.addInitScript((s) => {
     if (!sessionStorage.getItem('seeded')) {
       localStorage.clear();
-      localStorage.setItem('hanafuda.settings.v1', JSON.stringify({ speed: 0.2, level: 1, sound: false, ...s }));
+      localStorage.setItem('hanafuda.settings.v1', JSON.stringify({ speed: 0.2, level: 1, sound: false, undo: false, ...s }));
       sessionStorage.setItem('seeded', '1');
     }
   }, settings);
@@ -154,3 +154,32 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
     await ctx.close();
   });
 }
+
+test('出した札を確定前に取り消せる（山札はめくられない）', { timeout: 120000 }, async () => {
+  const { page, errors, ctx } = await open({ game: 'koikoi', rounds: 2, undo: true });
+  await page.click('#btnStart');
+  const actionsCount = () => page.evaluate(() => JSON.parse(localStorage.getItem('hanafuda.current.v1')).rounds.flat().length);
+  const deckBadge = () => page.textContent('.deck-count');
+  // 自分の番まで進める
+  await page.waitForFunction(() => document.querySelectorAll('.card.playable').length > 0, null, { timeout: 60000 });
+  const n0 = await actionsCount();
+  const deck0 = await deckBadge();
+  const card = await page.$$eval('.card.playable', (els) => els.at(-1).dataset.id);
+  await page.click(`.card[data-id="${card}"]`);
+  await page.click(`.card[data-id="${card}"]`);
+  const target = await page.$('.card.match.playable');
+  if (target) await target.click();
+  await page.waitForSelector('#undoBar.show', { timeout: 5000 });
+  await page.click('#btnUndo');
+  await page.waitForFunction((c) => document.querySelector(`.card[data-id="${c}"]`).classList.contains('playable'), card, { timeout: 5000 });
+  assert.equal(await actionsCount(), n0, '取り消した手が記録に残っている');
+  assert.equal(await deckBadge(), deck0, '取り消したのに山札がめくられた');
+  // 今度は取り消さずに待つと確定する
+  await page.click(`.card[data-id="${card}"]`);
+  await page.click(`.card[data-id="${card}"]`);
+  const t2 = await page.$('.card.match.playable');
+  if (t2) await t2.click();
+  await page.waitForFunction((n) => JSON.parse(localStorage.getItem('hanafuda.current.v1')).rounds.flat().length > n, n0, { timeout: 10000 });
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});

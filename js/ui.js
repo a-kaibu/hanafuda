@@ -25,7 +25,7 @@ const SETTINGS_KEY = 'hanafuda.settings.v1';
 const HISTORY_KEY = 'hanafuda.history.v1';
 const CURRENT_KEY = 'hanafuda.current.v1'; // 対局中の種と行動（リロード後の再開用）
 const settings = Object.assign(
-  { sound: true, volume: 0.7, tags: true, hints: true, speed: 1, level: 2, rounds: 12, oichoRounds: 10, game: 'koikoi', rules: { ...DEFAULT_RULES } },
+  { sound: true, volume: 0.7, tags: true, hints: true, undo: true, speed: 1, level: 2, rounds: 12, oichoRounds: 10, game: 'koikoi', rules: { ...DEFAULT_RULES } },
   safeJSON(localStorage.getItem(SETTINGS_KEY)),
 );
 settings.rules = { ...DEFAULT_RULES, ...settings.rules };
@@ -716,11 +716,16 @@ async function gameLoop(myGen, { resume = false } = {}) {
     if (isDecision(s)) {
       let action;
       if (s.turn === HUMAN) {
-        if (isOicho(s.rules)) action = await waitHuman();
-        else if (s.phase === 'decide') action = await humanDecide(s);
-        else {
-          if (s.phase === 'play') { sfx.play('turn'); }
-          action = await waitHuman();
+        // 誤タップ対策：決めた手はすぐには確定せず、少しの間だけ取り消せる
+        for (let first = true; ; first = false) {
+          if (isOicho(s.rules)) action = await waitHuman();
+          else if (s.phase === 'decide') action = await humanDecide(s);
+          else {
+            if (s.phase === 'play' && first) sfx.play('turn');
+            action = await waitHuman();
+          }
+          if (!alive()) return;
+          if (!(await undoWindow(s, action))) break;
         }
       } else {
         action = await cpuTurn(s);
@@ -736,6 +741,69 @@ async function gameLoop(myGen, { resume = false } = {}) {
       await afterStep(before, match.state);
     }
   }
+}
+
+// 取り消しの猶予。この間は手をまだエンジンに渡していないので、山札も CPU も何も動かない
+// （めくる前に戻すだけなので、取り消しで見えない札の情報が漏れることはない）。
+const UNDO_MS = 1600;
+function actionText(s, a) {
+  switch (a.type) {
+    case 'play': {
+      const m = matchesFor(a.card, s.field);
+      return `${CARDS[a.card].name}を${m.length ? '出して取ります' : '場に出します'}`;
+    }
+    case 'drawChoice': return `${CARDS[a.target].name}を取ります`;
+    case 'koikoi': return 'こいこいします';
+    case 'stop': return 'あがります';
+    case 'bet': return `${a.amount} 賭けます`;
+    case 'hit': return 'もう1枚引きます';
+    case 'stand': return 'このまま勝負します';
+    default: return '';
+  }
+}
+function undoWindow(s, a) {
+  if (!settings.undo) return Promise.resolve(false);
+  render();
+  // 出す札を持ち上げ、取る札を光らせて「これで確定する」形を見せておく
+  if (a.type === 'play') {
+    selected = a.card;
+    applyLayout(s);
+    cardEls.get(a.card).classList.add('selected');
+    const m = matchesFor(a.card, s.field);
+    for (const f of a.target != null ? [a.target] : m) cardEls.get(f).classList.add('match');
+  } else if (a.type === 'drawChoice') {
+    cardEls.get(a.target).classList.add('match');
+  }
+  setHint('');
+  const bar = $('#undoBar');
+  bar.querySelector('.t').textContent = actionText(s, a);
+  const fill = bar.querySelector('.fill');
+  fill.style.animation = 'none';
+  void fill.offsetWidth;
+  fill.style.animation = `undoFill ${UNDO_MS}ms linear forwards`;
+  bar.classList.add('show');
+  return new Promise((resolve) => {
+    const finish = (undo) => {
+      clearTimeout(timer);
+      document.removeEventListener('keydown', onKey, true);
+      bar.classList.remove('show');
+      $('#btnUndo').onclick = null;
+      selected = null;
+      if (undo) { sfx.play('tap'); toast('取り消しました'); }
+      if (match) { applyLayout(match.state); updateInteractivity(match.state); }
+      resolve(undo);
+    };
+    const timer = setTimeout(() => finish(false), UNDO_MS);
+    const onKey = (e) => {
+      if (e.key === 'Backspace' || e.key === 'Escape' || (e.key === 'z' && (e.ctrlKey || e.metaKey))) {
+        e.preventDefault();
+        e.stopPropagation();
+        finish(true);
+      }
+    };
+    document.addEventListener('keydown', onKey, true);
+    $('#btnUndo').onclick = (e) => { e.stopPropagation(); finish(true); };
+  });
 }
 
 async function cpuTurn(s) {
@@ -1539,6 +1607,9 @@ function init() {
   const tags = $('#optTags');
   tags.checked = settings.tags;
   tags.onchange = () => { settings.tags = tags.checked; applySettings(); saveSettings(); };
+  const undo = $('#optUndo');
+  undo.checked = settings.undo;
+  undo.onchange = () => { settings.undo = undo.checked; saveSettings(); };
   const hints = $('#optHints');
   hints.checked = settings.hints;
   hints.onchange = () => { settings.hints = hints.checked; saveSettings(); if (match) render(); };
