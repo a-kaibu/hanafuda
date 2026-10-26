@@ -59,13 +59,13 @@ try {
 } catch {
   worker = null;
 }
-function askCpu(view, level, cpuKey) {
-  if (!worker) return Promise.resolve(decide(structuredClone(view), level, cpuKey));
+function askCpu(view, level, cpuKey, rev) {
+  if (!worker) return Promise.resolve(decide(structuredClone(view), level, cpuKey, rev));
   return new Promise((resolve, reject) => {
     const id = ++reqId;
     waiting.set(id, { resolve, reject });
-    worker.postMessage({ id, view, level, cpuKey });
-  }).catch(() => decide(structuredClone(view), level, cpuKey));
+    worker.postMessage({ id, view, level, cpuKey, rev });
+  }).catch(() => decide(structuredClone(view), level, cpuKey, rev));
 }
 
 // ---------------- 検証（Web Worker） ----------------
@@ -774,7 +774,7 @@ async function cpuTurn(s) {
   setHint('CPU の番です', true);
   const t0 = performance.now();
   const view = cpuView(match);
-  const action = await askCpu(view, match.log.cpuLevel, match.cpuKey);
+  const action = await askCpu(view, match.log.cpuLevel, match.cpuKey, match.log.cpuRev ?? 1);
   const minThink = s.phase === 'play' ? 650 : s.phase === 'decide' ? 900 : 450;
   const spent = performance.now() - t0;
   if (spent < minThink * speed()) await new Promise((r) => setTimeout(r, minThink * speed() - spent));

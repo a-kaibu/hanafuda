@@ -9,11 +9,15 @@ import { apply, advance, isDecision, legalActions } from './engine.js';
 import { decideOicho } from './oicho-cpu.js';
 
 export const LEVELS = [
-  { id: 1, name: '初級', desc: 'ときどき気まぐれに打つ' },
+  { id: 1, name: '初級', desc: '合法手から完全にランダムに打つ' },
   { id: 2, name: '中級', desc: '目の前の得を取りにいく' },
   { id: 3, name: '上級', desc: '山札の期待値と相手の役を読む' },
   { id: 4, name: '達人', desc: '見えない札を何通りも想定して先読みする' },
 ];
+
+// CPU の打ち方の版。記録に残し、検証では対局した時点の版で判断を再計算する
+// 1: 初級は半分くらい気まぐれ、残りは評価で選ぶ / 2: 初級は完全ランダム
+export const CPU_REV = 2;
 
 const PLAYOUT_LEVEL = 3; // 仮想対局で双方が使う打ち方
 const WORLDS = 24; // 想定する「見えない札の配置」の数
@@ -314,8 +318,19 @@ function heuristic(view, level, rng) {
   return best;
 }
 
-export function decide(view, level, cpuKey) {
+// 初級：評価は一切せず、合法手から一様に選ぶ（同じ月が場に2枚ある札も「札」を先に選ぶので重みは同じ）
+function randomAction(view, rng) {
+  const legal = view.legal;
+  if (view.phase !== 'play') return legal[rng.uniform(legal.length)];
+  const cards = [...new Set(legal.map((a) => a.card))];
+  const card = cards[rng.uniform(cards.length)];
+  const opts = legal.filter((a) => a.card === card);
+  return opts[rng.uniform(opts.length)];
+}
+
+export function decide(view, level, cpuKey, rev = CPU_REV) {
   const rng = new Stream(cpuKey, `round:${view.round}:step:${view.step}`);
+  if (level === 1 && rev >= 2) return randomAction(view, rng);
   if (view.rules.mode === 'oicho') return decideOicho(view, level, rng);
   if (level === 4 && view.phase === 'play' && view.legal.length > 1) {
     // 上級の評価で候補を絞ってから仮想対局で比べる

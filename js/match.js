@@ -1,13 +1,13 @@
 // 試合全体（複数の局）の管理と、記録（ログ）・検証。
 import { PROTOCOL, commitmentOf, deckKeyOf, cpuKeyOf, firstOyaOf, shuffledDeck } from './rng.js';
 import { newRound, apply, advance, runAuto, isDecision, viewFor, isLegal, nextOya } from './engine.js';
-import { decide } from './cpu.js';
+import { decide, CPU_REV } from './cpu.js';
 import { sha256Hex } from './sha256.js';
 
 export const HUMAN = 0;
 export const CPU = 1;
 
-export function createMatch({ dealerSeed, cpuSeed, playerSeed, rules, cpuLevel }) {
+export function createMatch({ dealerSeed, cpuSeed, playerSeed, rules, cpuLevel, cpuRev = CPU_REV }) {
   const deckKey = deckKeyOf(dealerSeed, playerSeed);
   const m = {
     secret: { dealerSeed, cpuSeed }, // 試合終了まで公開しない
@@ -19,6 +19,7 @@ export function createMatch({ dealerSeed, cpuSeed, playerSeed, rules, cpuLevel }
       playerSeed,
       rules,
       cpuLevel,
+      cpuRev,
       startedAt: new Date().toISOString(),
       firstOya: firstOyaOf(deckKey),
       rounds: [],
@@ -160,7 +161,7 @@ export function verifyLog(log, { checkCpu = true } = {}) {
       }
       if (checkCpu && p === CPU) {
         const view = viewFor(s, CPU, { matchScores: [...totals], roundsTotal: log.rules.rounds });
-        const again = decide(view, log.cpuLevel, cpuKey);
+        const again = decide(view, log.cpuLevel, cpuKey, log.cpuRev ?? 1);
         cpuChecked++;
         if (JSON.stringify(again) !== JSON.stringify(action)) cpuMismatch++;
       }
@@ -200,7 +201,7 @@ export function snapshot(m) {
   const l = m.log;
   return {
     v: 1,
-    params: { dealerSeed, cpuSeed, playerSeed: l.playerSeed, rules: l.rules, cpuLevel: l.cpuLevel },
+    params: { dealerSeed, cpuSeed, playerSeed: l.playerSeed, rules: l.rules, cpuLevel: l.cpuLevel, cpuRev: l.cpuRev },
     startedAt: l.startedAt,
     rounds: l.rounds.map((r) => r.actions),
     undos: l.undos || [],
@@ -208,7 +209,8 @@ export function snapshot(m) {
 }
 
 export function resumeMatch(snap) {
-  const m = createMatch(snap.params);
+  // 版の記録がない中断データは以前の打ち方のまま続ける
+  const m = createMatch({ ...snap.params, cpuRev: snap.params.cpuRev ?? 1 });
   m.log.startedAt = snap.startedAt;
   m.log.undos = snap.undos || [];
   snap.rounds.forEach((actions, i) => {

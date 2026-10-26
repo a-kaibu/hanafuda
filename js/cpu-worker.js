@@ -3,9 +3,9 @@
 import { decide } from './cpu.js';
 
 self.onmessage = (e) => {
-  const { id, view, level, cpuKey } = e.data;
+  const { id, view, level, cpuKey, rev } = e.data;
   try {
-    self.postMessage({ id, action: decide(view, level, cpuKey) });
+    self.postMessage({ id, action: decide(view, level, cpuKey, rev) });
   } catch (err) {
     self.postMessage({ id, error: String(err) });
   }

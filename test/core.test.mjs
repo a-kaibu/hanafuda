@@ -79,6 +79,32 @@ test('full match replays and verifies', () => {
   }
 });
 
+test('legacy level-1 logs (before cpuRev) still verify', () => {
+  const rules = { ...DEFAULT_RULES, rounds: 2 };
+  const m = createMatch({ dealerSeed: randomHex(), cpuSeed: randomHex(), playerSeed: 'p', rules, cpuLevel: 1, cpuRev: 1 });
+  for (;;) {
+    while (stepAll(m).phase !== 'end') {
+      const s = m.state;
+      if (s.turn === CPU) act(m, CPU, decide(cpuView(m), 1, m.cpuKey, 1));
+      else act(m, HUMAN, decide(viewFor(s, HUMAN, {}), 2, 'f'.repeat(64)));
+    }
+    if (isMatchOver(m)) break;
+    startRound(m);
+  }
+  const log = JSON.parse(JSON.stringify(reveal(m)));
+  delete log.cpuRev;
+  delete log.logHash;
+  assert.ok(verifyLog(log).pass);
+});
+
+test('level 1 is uniform over cards', () => {
+  const view = { round: 1, step: 0, phase: 'play', rules: DEFAULT_RULES,
+    legal: [{ type: 'play', card: 0, target: 4 }, { type: 'play', card: 0, target: 5 }, { type: 'play', card: 9 }] };
+  let a = 0;
+  for (let i = 0; i < 400; i++) if (decide(view, 1, randomHex()).card === 0) a++;
+  assert.ok(a > 150 && a < 250, String(a));
+});
+
 test('tampering is detected', () => {
   const log = JSON.parse(JSON.stringify(playMatch([2, 2], 3)));
   const t1 = structuredClone(log);
