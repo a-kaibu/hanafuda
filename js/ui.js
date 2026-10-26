@@ -1,4 +1,4 @@
-import { CARDS, KIND_LABEL, MONTHS, ID, monthOf } from './cards.js';
+import { CARDS, KIND_LABEL, KIND_POINT, MONTHS, ID, monthOf } from './cards.js';
 import { DEFAULT_RULES, YAKU_INFO, TEYAKU_INFO, HANA_YAKU_INFO, HANA_BASE, evaluate, evaluateHana, cardPoints, finalScore } from './yaku.js';
 import { randomHex, commitmentOf } from './rng.js';
 import { isDecision, isOicho } from './engine.js';
@@ -1263,10 +1263,10 @@ function hanaRules(tab, body) {
       <p>点数の高い札をたくさん取り、決まった組み合わせ（<b>出来役</b>）を作ります。こいこいと違って途中で「あがる」ことはなく、<b>手札を全部出し切ってから点数を精算</b>します。</p>
       <h3>札の点数</h3>
       <table>
-        <tr><td class="nm">光</td><td>${[0, 8, 28, 40, 44].map(miniCard).join('')}</td><td class="pt">20点</td></tr>
-        <tr><td class="nm">タネ</td><td>${[4, 12, 16, 20, 24, 29, 32, 36, 41].map(miniCard).join('')}</td><td class="pt">10点</td></tr>
-        <tr><td class="nm">短冊</td><td>${[1, 5, 9, 13, 17, 21, 25, 33, 37, 42].map(miniCard).join('')}</td><td class="pt">5点</td></tr>
-        <tr><td class="nm">カス</td><td><div class="small">上記以外の24枚</div></td><td class="pt">1点</td></tr>
+        <tr><td class="nm">光<div class="small">${cardsOfKind('light').length}枚</div></td><td>${[0, 8, 28, 40, 44].map(miniCard).join('')}</td><td class="pt">20点</td></tr>
+        <tr><td class="nm">タネ<div class="small">${cardsOfKind('animal').length}枚</div></td><td>${[4, 12, 16, 20, 24, 29, 32, 36, 41].map(miniCard).join('')}</td><td class="pt">10点</td></tr>
+        <tr><td class="nm">短冊<div class="small">${cardsOfKind('ribbon').length}枚</div></td><td>${[1, 5, 9, 13, 17, 21, 25, 33, 37, 42].map(miniCard).join('')}</td><td class="pt">5点</td></tr>
+        <tr><td class="nm">カス<div class="small">${cardsOfKind('plain').length}枚</div></td><td><div class="small">上記以外の札</div></td><td class="pt">1点</td></tr>
       </table>
       <p class="small">48枚ぜんぶ足すと264点です。札の種類は「札一覧」タブでも確認できます。</p>
       <h3>配り方</h3>
@@ -1406,19 +1406,38 @@ function koikoiRules(tab, body, R) {
       <p class="note">役は重ねて数えます（例：猪鹿蝶 + タネ）。${R.sakeAsPlain ? '菊に盃はタネにもカスにも数えます。' : ''}
       ${R.sevenDouble ? '合計7点以上は2倍。' : ''}${R.koikoiDouble ? '相手がこいこいしている時にあがると2倍。' : ''}</p>${te}`;
   } else if (tab === 'cards') {
-    let h = '<div class="month-grid">';
-    for (let m = 1; m <= 12; m++) {
-      h += `<div class="month"><h4>${MONTHS[m].label}・${MONTHS[m].name}</h4><div class="row">`;
-      for (let k = 0; k < 4; k++) {
-        const c = (m - 1) * 4 + k;
-        h += `<figure>${miniCard(c)}${CARDS[c].name.replace(/^.+?に/, '')}<br><b>${KIND_LABEL[CARDS[c].kind]}</b></figure>`;
-      }
-      h += '</div></div>';
-    }
-    body.innerHTML = h + `</div>${CREDIT_HTML}`;
+    body.innerHTML = kindSummary(R) + monthGrid() + CREDIT_HTML;
   } else if (tab === 'fair') {
     body.innerHTML = fairnessExplainer();
   }
+}
+
+const cardsOfKind = (k) => CARDS.filter((c) => c.kind === k).map((c) => c.id);
+
+// 札の種類ごとの枚数（札一覧の先頭）
+function kindSummary(R) {
+  const hana = R.mode === 'hanaawase';
+  const rows = KINDS.map((k) => {
+    const ids = cardsOfKind(k);
+    const cards = k === 'plain' ? `<div class="small">各月のカス札（桐は3枚・柳は1枚）</div>` : ids.map(miniCard).join('');
+    return `<tr><td class="nm">${KIND_LABEL[k]}</td><td class="cnt">${ids.length}枚</td><td>${cards}</td>${hana ? `<td class="pt">${KIND_POINT[k]}点</td>` : ''}</tr>`;
+  }).join('');
+  const sake = !hana && R.sakeAsPlain ? '<p class="small">菊に盃はタネにもカスにも数えます（カスを数えるときは25枚）。</p>' : '';
+  return `<h3>札の種類と枚数</h3><table class="kinds">${rows}</table><p class="small">全部で48枚、各月4枚ずつです。</p>${sake}<h3>月ごとの札</h3>`;
+}
+
+function monthGrid() {
+  let h = '<div class="month-grid">';
+  for (let m = 1; m <= 12; m++) {
+    h += `<div class="month"><h4>${MONTHS[m].label}・${MONTHS[m].name}</h4><div class="row">`;
+    for (let k = 0; k < 4; k++) {
+      const c = CARDS[(m - 1) * 4 + k];
+      const short = c.kind === 'plain' ? '&nbsp;' : c.name.replace(/^.+?に/, '').replace('小野道風', '道風');
+      h += `<figure>${miniCard(c.id)}<b>${KIND_LABEL[c.kind]}</b><span>${short}</span></figure>`;
+    }
+    h += '</div></div>';
+  }
+  return h + '</div>';
 }
 
 function fairnessExplainer() {
