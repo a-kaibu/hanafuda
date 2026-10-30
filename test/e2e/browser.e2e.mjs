@@ -195,3 +195,21 @@ test('1手戻すと、自分の手を選ぶ前の局面に戻り、記録に残�
   assert.deepEqual(errors, []);
   await ctx.close();
 });
+
+test('点数計算ページ: 札をタップして局を記録し、リロード後も合計が残る', async () => {
+  const { page, errors, ctx } = await open({});
+  await page.goto(`${base}score.html`);
+  await page.click('#btnSetupOk');
+  await page.click('#btnAdd');
+  for (const id of [1, 5, 9]) await page.click(`.pick[data-id="${id}"]`); // 赤短
+  await page.click('#btnEdSave');
+  await page.click('#btnAdd');
+  await page.click('[data-seg="winner"] button[data-v="1"]');
+  await page.click('[data-seg="method"] button[data-v="teyaku"]');
+  await page.click('#btnEdSave');
+  await page.reload();
+  assert.equal((await page.textContent('#totals')).replace(/\s/g, ''), 'A−1B+1');
+  assert.equal(await page.$$eval('#records tbody tr', (r) => r.length), 2);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
